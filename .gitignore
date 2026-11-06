@@ -1,0 +1,51 @@
+# Hanya konten proyek yang diizinkan untuk publikasi.
+/*
+!/src/
+!/tools/
+!/README.md
+!/.gitignore
+
+# Data riset dan dokumen lokal tidak masuk repository.
+/referensi/
+/docs/
+
+# ROS 2 / colcon / pengujian (semua tingkat direktori).
+**/build/
+**/install/
+**/log/
+**/tmp/
+**/.colcon/
+**/.hypothesis/
+**/.pytest_cache/
+**/.mypy_cache/
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
+**/.coverage
+**/coverage.xml
+
+# Rekaman, dataset, secret, dan file kerja privat.
+/src/recordings/
+**/*.db
+**/*.db3
+**/*.mcap
+**/*.bag
+**/*.bag.active
+**/*.sqlite
+**/*.sqlite3
+**/*.log
+**/.env
+**/.env.*
+**/*secret*
+**/*credentials*
+**/*token*.json
+**/id_rsa
+**/id_ed25519
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.swp
+**/*~
+.DS_Store
+Thumbs.db

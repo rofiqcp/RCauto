@@ -1,0 +1,71 @@
+rcauto_cpp_controller:
+  ros__parameters:
+    controller:
+      mode: pid
+      pid:
+        kp: 0.75
+        ki: 0.06
+        kd: 0.12
+        max_output: 0.85
+      fuzzy:
+        error_weight: 0.65
+        rate_weight: 0.25
+        max_output: 0.85
+      ai:
+        model_path: ""
+    drive:
+      max_steering_rad: 0.35
+      max_speed_mps: 0.18
+      follow_speed_mps: 0.18
+      cross_speed_mps: 0.11
+    safety:
+      stale_s: 0.6
+      min_lane_confidence: 0.4
+      green_hold_s: 0.6
+      cross_timeout_s: 3.0
+      require_range: false
+      range_stop_m: 0.50
+      range_stale_s: 0.4
+      allow_live_tuning: false
+rcauto_cpp_vision:
+  ros__parameters:
+    vision:
+      source: ros
+      lane_style: tape
+      line_color: yellow
+      camera_index: 0
+      yellow_h_min: 15
+      yellow_h_max: 42
+      min_saturation: 70
+      min_brightness: 80
+      road_min_width_ratio: 0.22
+      road_max_width_ratio: 0.89
+      publish_debug: true
+      fps: 15.0
+rcauto_cpp_perception:
+  ros__parameters:
+    detection:
+      min_score: 0.4
+      hazard_corridor_left: 0.23
+      hazard_corridor_right: 0.77
+      hazard_bottom_min: 0.42
+      green_min_fraction: 0.06
+      max_image_age_s: 0.3
+rcauto_cpp_actuator:
+  ros__parameters:
+    actuator:
+      hardware_enabled: false
+      backend: pca9685
+      i2c_device: /dev/i2c-1
+      i2c_address: 64
+      steering_channel: 0
+      esc_channel: 1
+      servo_center_us: 1500
+      servo_min_us: 1100
+      servo_max_us: 1900
+      esc_neutral_us: 1500
+      esc_forward_us: 1600
+      max_steering_rad: 0.35
+      max_speed_mps: 0.18
+      watchdog_s: 0.25
+      max_servo_step_us: 40

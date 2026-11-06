@@ -1,0 +1,27 @@
+rcauto_autonomy:
+  ros__parameters:
+    mode: pid
+    max_steering_rad: 0.35
+    max_speed_mps: 0.18
+    watchdog_s: 0.6
+rcauto_vision:
+  ros__parameters:
+    source: usb
+    camera_index: 0
+    line_color: yellow
+    lane_style: tape
+    fps: 15.0
+rcauto_actuator:
+  ros__parameters:
+    hardware_enabled: false
+    gpiochip: 0
+    steering_gpio_bcm: 18
+    esc_gpio_bcm: 19
+    steering_center_us: 1500
+    steering_min_us: 1100
+    steering_max_us: 1900
+    esc_neutral_us: 1500
+    esc_max_forward_us: 1600
+    max_steering_rad: 0.35
+    max_speed_mps: 0.18
+    command_timeout_s: 0.25
