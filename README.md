@@ -22,9 +22,9 @@ flowchart TD
     SAFE[Safety FSM / watchdog] --> CTRL[Autonomy controller]
     OP[Operator: enable / estop / mode] --> SAFE
     OP --> CTRL
-    CTRL -->|PID / Fuzzy / ONNX baseline| DRIVE[/rcauto/drive Ackermann]
+    CTRL -->|PID / Fuzzy / ONNX baseline| DRIVE["/rcauto/drive · Ackermann"]
     DRIVE --> ACT[Actuator node: limit + watchdog]
-    ACT -->|Dry run| STATUS[/rcauto/actuator_status]
+    ACT -->|Dry run| STATUS["/rcauto/actuator_status"]
     ACT -->|Hanya hardware_enabled=true| PWM[GPIO PWM -> servo + ESC]
     SAFE -->|state / diagnostic| MON[Foxglove bridge :8767]
     CTRL --> MON
@@ -46,7 +46,7 @@ flowchart TD
     O -->|Ya| OS[OBSTACLE_STOP: kecepatan 0]
     O -->|Tidak| I{Persimpangan terdeteksi / latched?}
     I -->|Tidak| F[FOLLOW: steering sesuai mode]
-    I -->|Ya| G{Traffic light GREEN stabil >=0.6 s?}
+    I -->|Ya| G{"Traffic light GREEN stabil ≥0,6 s?"}
     G -->|Tidak| W[WAIT_SIGNAL: berhenti]
     G -->|Ya| X{Waktu crossing valid?}
     X -->|Tidak| S
@@ -77,7 +77,7 @@ flowchart LR
     V --> F[C++ controller: FSM / PID / Fuzzy / OpenCV ONNX]
     P --> F
     R --> F
-    F --> D[/rcauto/drive]
+    F --> D["/rcauto/drive"]
     D --> A[C++ actuator: limits + watchdog]
     A --> DRY[Dry-run default]
     A -->|hardware enabled| I2C[PCA9685 I2C steering + ESC]
@@ -87,7 +87,7 @@ flowchart LR
 
 **Perbedaan hardware:** node aktuator **Python** menggunakan GPIO PWM melalui `lgpio` (BCM18/BCM19), sedangkan aktuator **C++** saat ini menggunakan **PCA9685 melalui I²C** (`/dev/i2c-1`, alamat 0x40, channel 0/1) jika mode hardware diaktifkan. Jangan menjalankan kedua aktuator ke ESC yang sama bersamaan. Produksi deteksi Hailo ke `vision_msgs/Detection2DArray` untuk jalur C++ memerlukan adapter eksternal yang cocok dengan runtime Hailo. Node C++ dan pipeline gabungannya belum dikonfirmasi lulus build atau uji kendaraan.
 
-Jika ingin mencoba build paket C++ secara terpisah di Ubuntu 24.04, pasang pula `ros-jazzy-vision-msgs`, `ros-jazzy-diagnostic-msgs`, `libopencv-dev`, dan `libi2c-dev`, lalu jalankan dari `src/ros2_ws`: `colcon build --packages-select rcauto_cpp`. Perbaiki error build yang ditemukan sebelum menjalankan node.
+Jika ingin mencoba build paket C++ secara terpisah di Ubuntu 24.04, pasang pula `ros-jazzy-vision-msgs`, `ros-jazzy-diagnostic-msgs`, `libopencv-dev`, dan `libi2c-dev`, lalu jalankan dari `src/ros2_ws`: `colcon build --packages-select rcauto_cpp`. Perbaiki error build yang ditemukan sebelum menjalankan node. Sesudah build berhasil dan environment disource, jalur simulasi C++ adalah `ros2 launch rcauto_cpp rcauto_cpp.launch.py simulation:=true hardware_enabled:=false`. Jangan gunakan mode hardware sampai seluruh uji dan interlock lulus.
 
 ## 2. Struktur repository
 
@@ -243,7 +243,7 @@ Tes Python mencakup logika state machine dan persepsi. Tes hardware Raspberry Pi
 
 ## 7. Peta pengembangan
 
-- Memvalidasi build dan integrasi node C++ (`controller`, `vision`, `perception`, `simulator`, `actuator`), melengkapi launch/config/tes, lalu menguji kesetaraan terhadap paket Python.
+- Memvalidasi build dan integrasi node C++ (`controller`, `vision`, `perception`, `simulator`, `actuator`), menguji launch/config/tes yang sudah tersedia, lalu memverifikasi kesetaraan terhadap paket Python.
 - Validasi model Hailo sesuai kamera dan AI HAT, serta deteksi pejalan kaki/kendaraan/lampu nyata dengan dataset sendiri.
 - Kalibrasi steering/ESC Pi 5, failsafe listrik independen, pengukuran latency dan watchdog end-to-end.
 - Pengujian jalur/perempatan berulang, kriteria berhenti/melintas, telemetry Foxglove, dan logging pengujian ke lokasi **lokal** yang tidak ikut Git.
