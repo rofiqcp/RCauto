@@ -69,7 +69,7 @@ class VisionNode final : public rclcpp::Node {
     pub_cross_ = create_publisher<std_msgs::msg::Bool>("/rcauto/intersection", 10);
     pub_debug_ = create_publisher<sensor_msgs::msg::Image>("/rcauto/camera/annotated", 2);
     if (get_parameter("vision.source").as_string() == "usb") {
-      camera_.open(get_parameter("vision.camera_index").as_int());
+      camera_.open(static_cast<int>(get_parameter("vision.camera_index").as_int()));
       camera_.set(cv::CAP_PROP_FRAME_WIDTH, 640);
       camera_.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
       if (!camera_.isOpened()) RCLCPP_ERROR(get_logger(), "Camera missing, will stop by stale watchdog");
@@ -139,7 +139,7 @@ class VisionNode final : public rclcpp::Node {
         const auto* pixels = near.ptr<uint8_t>(y);
         for (int x=0;x<w;++x) if (pixels[x]) columns.push_back(x);
       }
-      if (static_cast<int>(columns.size()) >= std::max(30, static_cast<int>(near.total()*.002))) {
+      if (static_cast<int>(columns.size()) >= std::max(30, static_cast<int>(static_cast<double>(near.total())*.002))) {
         const auto center_index=columns.size()/2;
         std::nth_element(columns.begin(), columns.begin()+static_cast<std::ptrdiff_t>(center_index),
                          columns.end());

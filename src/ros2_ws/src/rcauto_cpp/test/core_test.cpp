@@ -43,5 +43,8 @@ int main() {
   timeout.update(safe(true,"GREEN"),10,true,lim);
   timeout.update(safe(true,"GREEN"),10.8,true,lim);
   assert(timeout.update(safe(true,"GREEN"),14,true,lim).second==0);
+  assert(timeout.update(safe(true,"GREEN"),15,true,lim).second==0);
+  timeout.update(safe(),16,false,lim);
+  assert(timeout.update(safe(),17,true,lim).first==State::Follow);
   std::cout<<"PASS: PID, fuzzy, NaN, stale watchdog, obstacle, signal, FSM, E-stop, crossing timeout\n";
 }

@@ -11,6 +11,11 @@ find_package(ackermann_msgs REQUIRED)
 find_package(vision_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
+# Prefer distribution OpenCV so cv_bridge and our nodes use one ABI.
+set(_ros_opencv_dir "/usr/lib/${CMAKE_LIBRARY_ARCHITECTURE}/cmake/opencv4")
+if(EXISTS "${_ros_opencv_dir}/OpenCVConfig.cmake")
+  set(OpenCV_DIR "${_ros_opencv_dir}" CACHE PATH "Use system OpenCV with cv_bridge" FORCE)
+endif()
 find_package(OpenCV REQUIRED COMPONENTS core imgproc videoio dnn)
 add_library(rcauto_core INTERFACE)
 target_include_directories(rcauto_core INTERFACE

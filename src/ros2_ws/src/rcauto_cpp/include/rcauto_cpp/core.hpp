@@ -116,13 +116,15 @@ struct Limits {
 class StateMachine {
  public:
   void reset_disarmed() {
-    estop_ = false; state_ = State::Disarmed; green_since_ = -1;
+    estop_ = false; fault_latched_ = false; state_ = State::Disarmed; green_since_ = -1;
     crossing_since_ = -1; latched_intersection_ = false;
   }
   void emergency_stop() { estop_ = true; state_ = State::Estop; }
   std::pair<State, double> update(const Observation& o, double now, bool armed, Limits lim) {
     if (estop_) return {state_ = State::Estop, 0};
+    if (fault_latched_ && armed) return {state_ = State::SensorStop, 0};
     if (!armed) {
+      fault_latched_ = false;
       state_ = State::Disarmed;
       green_since_ = crossing_since_ = -1;
       latched_intersection_ = false;
@@ -145,8 +147,10 @@ class StateMachine {
         crossing_since_ = now;
         state_ = State::Crossing;
       }
-      if (crossing_since_ < 0 || now - crossing_since_ > lim.cross_timeout_s)
+      if (crossing_since_ < 0 || now - crossing_since_ > lim.cross_timeout_s) {
+        fault_latched_ = true;
         return {state_ = State::SensorStop, 0};
+      }
       if (!o.intersection && now - crossing_since_ >= 0.5) {
         latched_intersection_ = false; green_since_ = crossing_since_ = -1;
         return {state_ = State::Follow, lim.normal_speed};
@@ -157,7 +161,7 @@ class StateMachine {
   }
  private:
   State state_{State::Disarmed};
-  bool estop_{false}, latched_intersection_{false};
+  bool estop_{false}, latched_intersection_{false}, fault_latched_{false};
   double green_since_{-1}, crossing_since_{-1};
 };
 }  // namespace rcauto
