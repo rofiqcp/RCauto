@@ -1,0 +1,394 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<sdf version="1.9">
+  <!-- Geometry matches description/rcauto_350x200.urdf.xacro.
+       +X front; wheelbase 0.244 m; wheel track 0.138 m; tyre diameter 0.070 m.
+       Simulated motor + gearbox + diff: 2 independent rear wheel joints. -->
+  <model name="rcauto">
+    <self_collide>false</self_collide>
+    <link name="base_link">
+      <pose>0 0 0.056 0 0 0</pose>
+      <inertial>
+        <pose>-0.01811714 -0.00087429 0.02718571 0 0 0</pose>
+        <mass>1.750</mass>
+        <inertia>
+          <ixx>0.0037361539</ixx>
+          <iyy>0.0130328381</iyy>
+          <izz>0.0133463039</izz>
+          <ixy>-0.0000131858</ixy>
+          <ixz>-0.0004697581</ixz>
+          <iyz>0.0000767559</iyz>
+        </inertia>
+      </inertial>
+      <visual name="towerpro_mg996r_visual">
+        <pose>0.082 0 0.029 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0407 0.0197 0.0429</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.06 0.07 0.09 1</ambient>
+          <diffuse>0.06 0.07 0.09 1</diffuse>
+        </material>
+      </visual>
+      <visual name="bldc_motor_visual">
+        <pose>-0.090 -0.026 0.024 0 1.57079632679 0</pose>
+        <geometry>
+          <cylinder><radius>0.0155</radius><length>0.061</length></cylinder></geometry>
+        <material>
+          <ambient>0.67 0.68 0.71 1</ambient>
+          <diffuse>0.67 0.68 0.71 1</diffuse>
+        </material>
+      </visual>
+      <visual name="gearbox_diff_visual">
+        <pose>-0.112 0.026 0.026 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.049 0.039 0.036</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.86 0.44 0.07 1</ambient>
+          <diffuse>0.86 0.44 0.07 1</diffuse>
+        </material>
+      </visual>
+      <visual name="battery_visual">
+        <pose>-0.005 0 0.035 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.080 0.044 0.033</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.06 0.07 0.09 1</ambient>
+          <diffuse>0.06 0.07 0.09 1</diffuse>
+        </material>
+      </visual>
+      <visual name="raspberry_pi5_visual">
+        <pose>0.009 0.027 0.079 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.085 0.056 0.016</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.09 0.48 0.21 1</ambient>
+          <diffuse>0.09 0.48 0.21 1</diffuse>
+        </material>
+      </visual>
+      <visual name="esc_visual">
+        <pose>-0.030 -0.045 0.079 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.050 0.028 0.017</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.75 0.08 0.09 1</ambient>
+          <diffuse>0.75 0.08 0.09 1</diffuse>
+        </material>
+      </visual>
+      <visual name="front_camera_visual">
+        <pose>0.146 0 0.097 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.023 0.027 0.023</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.06 0.07 0.09 1</ambient>
+          <diffuse>0.06 0.07 0.09 1</diffuse>
+        </material>
+      </visual>
+      <visual name="front_lidar_visual">
+        <pose>0.080 0 0.127 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.042 0.042 0.034</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.86 0.44 0.07 1</ambient>
+          <diffuse>0.86 0.44 0.07 1</diffuse>
+        </material>
+      </visual>
+      <sensor name="camera_front" type="camera">
+        <gz_frame_id>camera_optical_frame</gz_frame_id>
+        <pose>0.146 0 0.097 0 0.25 0</pose>
+        <always_on>true</always_on>
+        <update_rate>12</update_rate>
+        <topic>/rcauto/camera/image</topic>
+        <camera>
+          <horizontal_fov>1.20</horizontal_fov>
+          <image>
+            <width>640</width>
+            <height>360</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip>
+            <near>0.04</near>
+            <far>30</far>
+          </clip>
+        </camera>
+      </sensor>
+      <sensor name="imu" type="imu">
+        <gz_frame_id>imu_link</gz_frame_id>
+        <pose>0 0 0.075 0 0 0</pose>
+        <always_on>true</always_on>
+        <update_rate>50</update_rate>
+        <topic>/rcauto/imu</topic>
+      </sensor>
+    <collision name="center_collision"><pose>0 0 0 0 0 0</pose><geometry><box><size>0.164 0.145 0.008</size></box></geometry></collision><collision name="front_collision"><pose>0.1235 0 0 0 0 0</pose><geometry><box><size>0.083 0.092 0.008</size></box></geometry></collision><collision name="rear_collision"><pose>-0.1235 0 0 0 0 0</pose><geometry><box><size>0.083 0.092 0.008</size></box></geometry></collision><collision name="front_bumper_collision"><pose>0.17 0 0 0 0 0</pose><geometry><box><size>0.01 0.145 0.008</size></box></geometry></collision><collision name="rear_bumper_collision"><pose>-0.17 0 0 0 0 0</pose><geometry><box><size>0.01 0.145 0.008</size></box></geometry></collision><visual name="print_01_chassis_front"><pose>0.115 0 -0.004 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/01_chassis_front.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.13 0.32 0.80 1</ambient><diffuse>0.13 0.32 0.80 1</diffuse></material></visual><visual name="print_02_chassis_center"><pose>0 0 -0.004 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/02_chassis_center.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.13 0.32 0.80 1</ambient><diffuse>0.13 0.32 0.80 1</diffuse></material></visual><visual name="print_03_chassis_rear"><pose>-0.115 0 -0.004 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/03_chassis_rear.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.13 0.32 0.80 1</ambient><diffuse>0.13 0.32 0.80 1</diffuse></material></visual><visual name="print_04_splice_front_left"><pose>0.055 0.03 -0.008 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/04_splice_front_left.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_04_splice_front_right"><pose>0.055 -0.03 -0.008 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/04_splice_front_right.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_04_splice_rear_left"><pose>-0.055 0.03 -0.008 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/04_splice_rear_left.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_04_splice_rear_right"><pose>-0.055 -0.03 -0.008 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/04_splice_rear_right.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_05_upper_deck_pi5_esc"><pose>0.015 0 0.0615 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/05_upper_deck_pi5_esc.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_06_standoff_front_left"><pose>0.065 0.038 0.004 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/06_standoff_front_left.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_06_standoff_front_right"><pose>0.065 -0.038 0.004 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/06_standoff_front_right.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_06_standoff_rear_left"><pose>-0.065 0.059 0.004 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/06_standoff_rear_left.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_06_standoff_rear_right"><pose>-0.065 -0.059 0.004 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/06_standoff_rear_right.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_07_pi5_spacer_1"><pose>-0.03 0.0025 0.0665 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/07_pi5_spacer_1.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_07_pi5_spacer_2"><pose>-0.03 0.0515 0.0665 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/07_pi5_spacer_2.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_07_pi5_spacer_3"><pose>0.028 0.0025 0.0665 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/07_pi5_spacer_3.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_07_pi5_spacer_4"><pose>0.028 0.0515 0.0665 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/07_pi5_spacer_4.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_08_servo_MG996R_cradle"><pose>0.082 0 0.004 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/08_servo_MG996R_cradle.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_09_servo_clamp_front"><pose>0.1065 0 0.03675 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/09_servo_clamp_front.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_09_servo_clamp_rear"><pose>0.0575 0 0.03675 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/09_servo_clamp_rear.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_10_bldc_adjustable_cradle"><pose>-0.09 -0.026 0.004 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/10_bldc_adjustable_cradle.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_11_gearbox_universal_tray"><pose>-0.112 0.026 0.004 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/11_gearbox_universal_tray.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_12_battery_lifted_tray"><pose>-0.005 0 0.004 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/12_battery_lifted_tray.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_13_esc_strap_tray"><pose>-0.03 -0.045 0.0665 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/13_esc_strap_tray.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_14_camera_front_mast"><pose>0.145 0 0.004 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/14_camera_front_mast.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_15_lidar_pedestal"><pose>0.08 0 0.0665 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/15_lidar_pedestal.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_16_kingpin_fork_left"><pose>0.122 0.044 -0.036 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/16_kingpin_fork_left.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_16_kingpin_fork_right"><pose>0.122 -0.044 -0.036 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/16_kingpin_fork_right.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_18_steering_tie_rod"><pose>0.104 0 -0.01725 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/18_steering_tie_rod.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_22_rear_bearing_hanger_left"><pose>-0.122 0.043 -0.033 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/22_rear_bearing_hanger_left.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual><visual name="print_22_rear_bearing_hanger_right"><pose>-0.122 -0.043 -0.033 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/22_rear_bearing_hanger_right.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual></link>
+    <link name="front_left_knuckle">
+      <pose>0.122 0.044 0.035 0 0 0</pose>
+      <inertial>
+        <mass>0.035</mass>
+        <inertia>
+          <ixx>0.000004</ixx>
+          <iyy>0.000004</iyy>
+          <izz>0.000004</izz>
+        </inertia>
+      </inertial>
+      <visual name="print_17_front_knuckle_left"><pose>0 0 -0.008 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/17_front_knuckle_left.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual></link>
+    <joint name="front_left_steering_joint" type="revolute">
+      <parent>base_link</parent>
+      <child>front_left_knuckle</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit>
+          <lower>-0.72</lower>
+          <upper>0.72</upper>
+          <effort>5</effort>
+          <velocity>3.8</velocity>
+        </limit>
+        <dynamics>
+          <damping>0.03</damping>
+        </dynamics>
+      </axis>
+    </joint>
+    <link name="front_left_wheel">
+      <pose>0.122 0.069 0.035 0 0 0</pose>
+      <inertial>
+        <mass>0.105</mass>
+        <inertia>
+          <ixx>0.000046</ixx>
+          <iyy>0.0000643</iyy>
+          <izz>0.000046</izz>
+        </inertia>
+      </inertial>
+      <collision name="front_left_traction">
+        <geometry>
+          <cylinder>
+            <radius>0.035</radius>
+            <length>0.034</length>
+          </cylinder>
+        </geometry>
+        <pose>0 0 0 1.5707963267949 0 0</pose>
+        <surface>
+          <friction>
+            <ode>
+              <mu>1.5</mu>
+              <mu2>1.3</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+    <visual name="front_left_20_wheel_rim_625ZZ"><pose>0 0.015 0 1.570796326795 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/20_wheel_rim_625ZZ.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.58 0.58 0.60 1</ambient><diffuse>0.58 0.58 0.60 1</diffuse></material></visual><visual name="front_left_21_tire_70x34_TPU"><pose>0 0.017 0 1.570796326795 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/21_tire_70x34_TPU.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.04 0.04 0.045 1</ambient><diffuse>0.04 0.04 0.045 1</diffuse></material></visual></link>
+    <joint name="front_left_wheel_joint" type="revolute">
+      <parent>front_left_knuckle</parent>
+      <child>front_left_wheel</child>
+      <axis>
+        <xyz>0 1 0</xyz>
+        <limit>
+          <lower>-1000000000</lower>
+          <upper>1000000000</upper>
+          <effort>2</effort>
+          <velocity>85</velocity>
+        </limit>
+        <dynamics>
+          <damping>0.01</damping>
+        </dynamics>
+      </axis>
+    </joint>
+    <link name="front_right_knuckle">
+      <pose>0.122 -0.044 0.035 0 0 0</pose>
+      <inertial>
+        <mass>0.035</mass>
+        <inertia>
+          <ixx>0.000004</ixx>
+          <iyy>0.000004</iyy>
+          <izz>0.000004</izz>
+        </inertia>
+      </inertial>
+      <visual name="print_17_front_knuckle_right"><pose>0 0 -0.008 0 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/17_front_knuckle_right.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.62 0.64 0.68 1</ambient><diffuse>0.62 0.64 0.68 1</diffuse></material></visual></link>
+    <joint name="front_right_steering_joint" type="revolute">
+      <parent>base_link</parent>
+      <child>front_right_knuckle</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit>
+          <lower>-0.72</lower>
+          <upper>0.72</upper>
+          <effort>5</effort>
+          <velocity>3.8</velocity>
+        </limit>
+        <dynamics>
+          <damping>0.03</damping>
+        </dynamics>
+      </axis>
+    </joint>
+    <link name="front_right_wheel">
+      <pose>0.122 -0.069 0.035 0 0 0</pose>
+      <inertial>
+        <mass>0.105</mass>
+        <inertia>
+          <ixx>0.000046</ixx>
+          <iyy>0.0000643</iyy>
+          <izz>0.000046</izz>
+        </inertia>
+      </inertial>
+      <collision name="front_right_traction">
+        <geometry>
+          <cylinder>
+            <radius>0.035</radius>
+            <length>0.034</length>
+          </cylinder>
+        </geometry>
+        <pose>0 0 0 1.5707963267949 0 0</pose>
+        <surface>
+          <friction>
+            <ode>
+              <mu>1.5</mu>
+              <mu2>1.3</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+    <visual name="front_right_20_wheel_rim_625ZZ"><pose>0 0.015 0 1.570796326795 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/20_wheel_rim_625ZZ.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.58 0.58 0.60 1</ambient><diffuse>0.58 0.58 0.60 1</diffuse></material></visual><visual name="front_right_21_tire_70x34_TPU"><pose>0 0.017 0 1.570796326795 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/21_tire_70x34_TPU.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.04 0.04 0.045 1</ambient><diffuse>0.04 0.04 0.045 1</diffuse></material></visual></link>
+    <joint name="front_right_wheel_joint" type="revolute">
+      <parent>front_right_knuckle</parent>
+      <child>front_right_wheel</child>
+      <axis>
+        <xyz>0 1 0</xyz>
+        <limit>
+          <lower>-1000000000</lower>
+          <upper>1000000000</upper>
+          <effort>2</effort>
+          <velocity>85</velocity>
+        </limit>
+        <dynamics>
+          <damping>0.01</damping>
+        </dynamics>
+      </axis>
+    </joint>
+    <link name="rear_left_wheel">
+      <pose>-0.122 0.069 0.035 0 0 0</pose>
+      <inertial>
+        <mass>0.105</mass>
+        <inertia>
+          <ixx>0.000046</ixx>
+          <iyy>0.0000643</iyy>
+          <izz>0.000046</izz>
+        </inertia>
+      </inertial>
+      <collision name="rear_left_traction">
+        <geometry>
+          <cylinder>
+            <radius>0.035</radius>
+            <length>0.034</length>
+          </cylinder>
+        </geometry>
+        <pose>0 0 0 1.5707963267949 0 0</pose>
+        <surface>
+          <friction>
+            <ode>
+              <mu>1.5</mu>
+              <mu2>1.3</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+    <visual name="rear_left_20_wheel_rim_625ZZ"><pose>0 0.015 0 1.570796326795 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/20_wheel_rim_625ZZ.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.58 0.58 0.60 1</ambient><diffuse>0.58 0.58 0.60 1</diffuse></material></visual><visual name="rear_left_21_tire_70x34_TPU"><pose>0 0.017 0 1.570796326795 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/21_tire_70x34_TPU.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.04 0.04 0.045 1</ambient><diffuse>0.04 0.04 0.045 1</diffuse></material></visual></link>
+    <joint name="rear_left_wheel_joint" type="revolute">
+      <parent>base_link</parent>
+      <child>rear_left_wheel</child>
+      <axis>
+        <xyz>0 1 0</xyz>
+        <limit>
+          <lower>-1000000000</lower>
+          <upper>1000000000</upper>
+          <effort>2</effort>
+          <velocity>85</velocity>
+        </limit>
+        <dynamics>
+          <damping>0.01</damping>
+        </dynamics>
+      </axis>
+    </joint>
+    <link name="rear_right_wheel">
+      <pose>-0.122 -0.069 0.035 0 0 0</pose>
+      <inertial>
+        <mass>0.105</mass>
+        <inertia>
+          <ixx>0.000046</ixx>
+          <iyy>0.0000643</iyy>
+          <izz>0.000046</izz>
+        </inertia>
+      </inertial>
+      <collision name="rear_right_traction">
+        <geometry>
+          <cylinder>
+            <radius>0.035</radius>
+            <length>0.034</length>
+          </cylinder>
+        </geometry>
+        <pose>0 0 0 1.5707963267949 0 0</pose>
+        <surface>
+          <friction>
+            <ode>
+              <mu>1.5</mu>
+              <mu2>1.3</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+    <visual name="rear_right_20_wheel_rim_625ZZ"><pose>0 0.015 0 1.570796326795 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/20_wheel_rim_625ZZ.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.58 0.58 0.60 1</ambient><diffuse>0.58 0.58 0.60 1</diffuse></material></visual><visual name="rear_right_21_tire_70x34_TPU"><pose>0 0.017 0 1.570796326795 0 0</pose><geometry><mesh><uri>model://rcauto_350x200/meshes/21_tire_70x34_TPU.stl</uri><scale>0.001 0.001 0.001</scale></mesh></geometry><material><ambient>0.04 0.04 0.045 1</ambient><diffuse>0.04 0.04 0.045 1</diffuse></material></visual></link>
+    <joint name="rear_right_wheel_joint" type="revolute">
+      <parent>base_link</parent>
+      <child>rear_right_wheel</child>
+      <axis>
+        <xyz>0 1 0</xyz>
+        <limit>
+          <lower>-1000000000</lower>
+          <upper>1000000000</upper>
+          <effort>2</effort>
+          <velocity>85</velocity>
+        </limit>
+        <dynamics>
+          <damping>0.01</damping>
+        </dynamics>
+      </axis>
+    </joint>
+    <plugin filename="gz-sim-ackermann-steering-system" name="gz::sim::systems::AckermannSteering">
+      <left_joint>rear_left_wheel_joint</left_joint>
+      <right_joint>rear_right_wheel_joint</right_joint>
+      <left_steering_joint>front_left_steering_joint</left_steering_joint>
+      <right_steering_joint>front_right_steering_joint</right_steering_joint>
+      <wheel_base>0.244</wheel_base>
+      <wheel_separation>0.138</wheel_separation>
+      <kingpin_width>0.088</kingpin_width>
+      <wheel_radius>0.035</wheel_radius>
+      <steering_limit>0.70</steering_limit>
+      <topic>/model/rcauto/cmd_vel</topic>
+      <odom_topic>/model/rcauto/odometry</odom_topic>
+      <min_velocity>-0.5</min_velocity>
+      <max_velocity>1.0</max_velocity>
+      <min_acceleration>-0.8</min_acceleration>
+      <max_acceleration>0.8</max_acceleration>
+      <odom_publish_frequency>30</odom_publish_frequency>
+    </plugin>
+    <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
+      <topic>/world/rcauto_track/model/rcauto/joint_state</topic>
+    </plugin>
+  </model>
+</sdf>

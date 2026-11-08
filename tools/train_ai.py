@@ -41,10 +41,14 @@ def save_onnx(output, weights):
     import onnx
     from onnx import TensorProto, helper, numpy_helper
     w1, b1, w2, b2 = weights
+    # Explicit MatMul/Add operators avoid Gemm parsing bugs in OpenCV 4.5
+    # (ROS Humble cv_bridge ABI) while remaining compatible with ONNX Runtime.
     nodes = [
-        helper.make_node("Gemm", ["input", "w1", "b1"], ["h0"]),
+        helper.make_node("MatMul", ["input", "w1"], ["mm1"]),
+        helper.make_node("Add", ["mm1", "b1"], ["h0"]),
         helper.make_node("Tanh", ["h0"], ["h1"]),
-        helper.make_node("Gemm", ["h1", "w2", "b2"], ["steering"]),
+        helper.make_node("MatMul", ["h1", "w2"], ["mm2"]),
+        helper.make_node("Add", ["mm2", "b2"], ["steering"]),
     ]
     graph = helper.make_graph(
         nodes, "synthetic_steering_baseline",

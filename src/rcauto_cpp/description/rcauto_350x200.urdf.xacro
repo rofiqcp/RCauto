@@ -1,0 +1,126 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="rcauto">
+  <!-- RCauto 350 x 200 mm, +X front, +Y left, +Z up, metres/kilograms/radians.
+       Design envelope: bumper-to-bumper 0.350 m; outer tyre edges +/-0.100 m.
+       Steering uses independent kingpins, approximating a servo-driven tie rod. -->
+  <xacro:property name="length" value="0.350"/>
+  <xacro:property name="width" value="0.200"/>
+  <xacro:property name="wheelbase" value="0.244"/>
+  <xacro:property name="kingpin_track" value="0.088"/><xacro:property name="track" value="0.138"/>
+  <xacro:property name="wheel_radius" value="0.035"/>
+  <xacro:macro name="mounted_mesh" params="name px py pz x y z mass mat filename z_offset"><link name="${name}"><xacro:box_inertia mass="${mass}" x="${x}" y="${y}" z="${z}"/><visual><origin xyz="0 0 ${z_offset}"/><geometry><mesh filename="${filename}" scale="0.001 0.001 0.001"/></geometry><material name="${mat}"/></visual><collision><geometry><box size="${x} ${y} ${z}"/></geometry></collision></link><joint name="${name}_mount" type="fixed"><parent link="base_link"/><child link="${name}"/><origin xyz="${px} ${py} ${pz}"/></joint></xacro:macro><xacro:property name="wheel_width" value="0.034"/>
+  <xacro:property name="base_height" value="0.056"/>
+  <xacro:property name="steering_limit" value="0.43"/>
+
+  <material name="blue"><color rgba="0.06 0.27 0.78 1"/></material>
+  <material name="black"><color rgba="0.06 0.07 0.09 1"/></material>
+  <material name="rubber"><color rgba="0.04 0.04 0.05 1"/></material>
+  <material name="green"><color rgba="0.09 0.48 0.21 1"/></material>
+  <material name="metal"><color rgba="0.66 0.68 0.71 1"/></material>
+  <material name="amber"><color rgba="0.86 0.44 0.07 1"/></material>
+  <material name="red"><color rgba="0.75 0.08 0.09 1"/></material>
+
+  <xacro:macro name="box_inertia" params="mass x y z">
+    <inertial>
+      <mass value="${mass}"/>
+      <inertia ixx="${mass*(y*y+z*z)/12.0}" ixy="0" ixz="0" iyy="${mass*(x*x+z*z)/12.0}" iyz="0" izz="${mass*(x*x+y*y)/12.0}"/>
+    </inertial>
+  </xacro:macro>
+
+  <xacro:macro name="box_visual" params="name x y z px py pz mat">
+    <visual name="${name}">
+      <origin xyz="${px} ${py} ${pz}"/>
+      <geometry><box size="${x} ${y} ${z}"/></geometry>
+      <material name="${mat}"/>
+    </visual>
+  </xacro:macro>
+
+  <xacro:macro name="mounted_box" params="name px py pz x y z mass mat">
+    <link name="${name}">
+      <xacro:box_inertia mass="${mass}" x="${x}" y="${y}" z="${z}"/>
+      <visual><geometry><box size="${x} ${y} ${z}"/></geometry><material name="${mat}"/></visual>
+      <collision><geometry><box size="${x} ${y} ${z}"/></geometry></collision>
+    </link>
+    <joint name="${name}_mount" type="fixed">
+      <parent link="base_link"/><child link="${name}"/>
+      <origin xyz="${px} ${py} ${pz}"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:macro name="wheel" params="name parent x y z">
+    <link name="${name}_wheel">
+      <inertial>
+        <mass value="0.105"/>
+        <inertia ixx="0.000046" ixy="0" ixz="0" iyy="0.0000643" iyz="0" izz="0.000046"/>
+      </inertial>
+      <collision>
+        <origin rpy="${pi/2} 0 0"/>
+        <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
+      </collision>
+    <visual><origin xyz="0 0.015 0" rpy="${pi/2} 0 0"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/20_wheel_rim_625ZZ.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual><origin xyz="0 0.017 0" rpy="${pi/2} 0 0"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/21_tire_70x34_TPU.stl" scale="0.001 0.001 0.001"/></geometry><material name="rubber"/></visual></link>
+    <joint name="${name}_wheel_joint" type="continuous">
+      <parent link="${parent}"/><child link="${name}_wheel"/>
+      <origin xyz="${x} ${y} ${z}"/>
+      <axis xyz="0 1 0"/>
+      <limit effort="2.0" velocity="85"/>
+      <dynamics damping="0.01" friction="0.015"/>
+    </joint>
+  </xacro:macro>
+
+  <link name="base_footprint"/>
+  <joint name="base_footprint_joint" type="fixed">
+    <parent link="base_footprint"/><child link="base_link"/>
+    <origin xyz="0 0 ${base_height}"/>
+  </joint>
+  <link name="base_link">
+    <xacro:box_inertia mass="0.70" x="0.330" y="0.145" z="0.008"/>
+    <!-- Four deck standoffs, sensor mast, camera bracket and rear drive housing. -->
+    <collision><geometry><box size="0.330 0.145 0.008"/></geometry></collision>
+  <visual name="print_01_chassis_front"><origin xyz="0.115 0 -0.004"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/01_chassis_front.stl" scale="0.001 0.001 0.001"/></geometry><material name="blue"/></visual><visual name="print_02_chassis_center"><origin xyz="0 0 -0.004"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/02_chassis_center.stl" scale="0.001 0.001 0.001"/></geometry><material name="blue"/></visual><visual name="print_03_chassis_rear"><origin xyz="-0.115 0 -0.004"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/03_chassis_rear.stl" scale="0.001 0.001 0.001"/></geometry><material name="blue"/></visual><visual name="print_04_splice_front_left"><origin xyz="0.055 0.03 -0.008"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/04_splice_front_left.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_04_splice_front_right"><origin xyz="0.055 -0.03 -0.008"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/04_splice_front_right.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_04_splice_rear_left"><origin xyz="-0.055 0.03 -0.008"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/04_splice_rear_left.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_04_splice_rear_right"><origin xyz="-0.055 -0.03 -0.008"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/04_splice_rear_right.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_06_standoff_front_left"><origin xyz="0.065 0.038 0.004"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/06_standoff_front_left.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_06_standoff_front_right"><origin xyz="0.065 -0.038 0.004"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/06_standoff_front_right.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_06_standoff_rear_left"><origin xyz="-0.065 0.059 0.004"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/06_standoff_rear_left.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_06_standoff_rear_right"><origin xyz="-0.065 -0.059 0.004"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/06_standoff_rear_right.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_07_pi5_spacer_1"><origin xyz="-0.03 0.0025 0.0665"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/07_pi5_spacer_1.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_07_pi5_spacer_2"><origin xyz="-0.03 0.0515 0.0665"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/07_pi5_spacer_2.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_07_pi5_spacer_3"><origin xyz="0.028 0.0025 0.0665"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/07_pi5_spacer_3.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_07_pi5_spacer_4"><origin xyz="0.028 0.0515 0.0665"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/07_pi5_spacer_4.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_08_servo_MG996R_cradle"><origin xyz="0.082 0 0.004"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/08_servo_MG996R_cradle.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_09_servo_clamp_front"><origin xyz="0.1065 0 0.03675"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/09_servo_clamp_front.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_09_servo_clamp_rear"><origin xyz="0.0575 0 0.03675"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/09_servo_clamp_rear.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_10_bldc_adjustable_cradle"><origin xyz="-0.09 -0.026 0.004"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/10_bldc_adjustable_cradle.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_11_gearbox_universal_tray"><origin xyz="-0.112 0.026 0.004"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/11_gearbox_universal_tray.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_12_battery_lifted_tray"><origin xyz="-0.005 0 0.004"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/12_battery_lifted_tray.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_13_esc_strap_tray"><origin xyz="-0.03 -0.045 0.0665"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/13_esc_strap_tray.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_14_camera_front_mast"><origin xyz="0.145 0 0.004"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/14_camera_front_mast.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_15_lidar_pedestal"><origin xyz="0.08 0 0.0665"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/15_lidar_pedestal.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_16_kingpin_fork_left"><origin xyz="0.122 0.044 -0.036"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/16_kingpin_fork_left.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_16_kingpin_fork_right"><origin xyz="0.122 -0.044 -0.036"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/16_kingpin_fork_right.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_18_steering_tie_rod"><origin xyz="0.104 0 -0.01725"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/18_steering_tie_rod.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_22_rear_bearing_hanger_left"><origin xyz="-0.122 0.043 -0.033"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/22_rear_bearing_hanger_left.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual><visual name="print_22_rear_bearing_hanger_right"><origin xyz="-0.122 -0.043 -0.033"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/22_rear_bearing_hanger_right.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual></link>
+
+  <!-- Steering kingpins are +/-0.069 m; maximum steered tyre outer edges stay below +/-0.100 m.
+       Positive yaw steers left. Actual tie-rod linkage/servo horn must be calibrated. -->
+  <xacro:macro name="front_knuckle" params="side y wheel_offset">
+    <link name="front_${side}_knuckle">
+      <xacro:box_inertia mass="0.035" x="0.018" y="0.018" z="0.026"/>
+      <visual><origin xyz="0 0 -0.008"/><geometry><mesh filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/17_front_knuckle_${side}.stl" scale="0.001 0.001 0.001"/></geometry><material name="metal"/></visual></link>
+    <joint name="front_${side}_steering_joint" type="revolute">
+      <parent link="base_link"/><child link="front_${side}_knuckle"/>
+      <origin xyz="${wheelbase/2} ${y} ${wheel_radius-base_height}"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="-0.43" upper="0.43" effort="5" velocity="3.8"/>
+      <dynamics damping="0.03" friction="0.01"/>
+    </joint>
+    <xacro:wheel name="front_${side}" parent="front_${side}_knuckle" x="0" y="${wheel_offset}" z="0"/>
+  </xacro:macro>
+  <xacro:front_knuckle side="left" y="${kingpin_track/2}" wheel_offset="0.025"/>
+  <xacro:front_knuckle side="right" y="${-kingpin_track/2}" wheel_offset="-0.025"/>
+  <xacro:wheel name="rear_left" parent="base_link" x="${-wheelbase/2}" y="${track/2}" z="${wheel_radius-base_height}"/>
+  <xacro:wheel name="rear_right" parent="base_link" x="${-wheelbase/2}" y="${-track/2}" z="${wheel_radius-base_height}"/>
+
+  <!-- TowerPro MG996R-sized envelope: 40.7 x 19.7 x 42.9 mm, 55 g. -->
+  <xacro:mounted_box name="towerpro_steering_servo" px="0.082" py="0" pz="0.029" x="0.0407" y="0.0197" z="0.0429" mass="0.055" mat="black"/>
+  <!-- Central geared drive; rear differential assumed to permit unequal wheel speeds. -->
+  <xacro:mounted_box name="gearbox_differential" px="-0.112" py="0.026" pz="0.026" x="0.049" y="0.039" z="0.036" mass="0.16" mat="amber"/>
+  <xacro:mounted_box name="battery_pack" px="-0.005" py="0" pz="0.035" x="0.080" y="0.044" z="0.033" mass="0.30" mat="black"/>
+  <xacro:mounted_mesh name="upper_deck" px="0.015" py="0" pz="0.064" x="0.205" y="0.142" z="0.005" mass="0.16" mat="metal" filename="package://rcauto_cpp/sim/rcauto_350x200/meshes/05_upper_deck_pi5_esc.stl" z_offset="-0.0025"/>
+  <!-- RPi 5 PCB footprint 85 x 56 mm; height is conservative assembly envelope. -->
+  <xacro:mounted_box name="raspberry_pi_5" px="0.009" py="0.027" pz="0.079" x="0.085" y="0.056" z="0.016" mass="0.065" mat="green"/>
+  <xacro:mounted_box name="esc" px="-0.030" py="-0.045" pz="0.079" x="0.050" y="0.028" z="0.017" mass="0.065" mat="red"/>
+  <xacro:mounted_box name="front_camera" px="0.146" py="0" pz="0.097" x="0.023" y="0.027" z="0.023" mass="0.025" mat="black"/>
+  <xacro:mounted_box name="front_lidar" px="0.080" py="0" pz="0.127" x="0.042" y="0.042" z="0.034" mass="0.04" mat="amber"/>
+  <!-- Lidar optical scan origin is 21 mm above the sensor body centre. -->
+  <link name="lidar_scan_frame"/>
+  <joint name="lidar_scan_joint" type="fixed">
+    <parent link="front_lidar"/><child link="lidar_scan_frame"/>
+    <origin xyz="0 0 0.021"/>
+  </joint>
+  <!-- Sensor frames: Gazebo camera optical direction is +X in camera body. -->
+  <link name="camera_optical_frame"/>
+  <joint name="camera_optical_joint" type="fixed">
+    <parent link="front_camera"/><child link="camera_optical_frame"/>
+    <origin rpy="-1.57079632679 0 -1.57079632679"/>
+  </joint>
+  <link name="imu_link"/>
+  <joint name="imu_joint" type="fixed"><parent link="base_link"/><child link="imu_link"/><origin xyz="0 0 0.075"/></joint>
+<link name="bldc_motor"><inertial><mass value="0.18"/><inertia ixx="0.0000216225" ixy="0" ixz="0" iyy="0.00006661125" iyz="0" izz="0.00006661125"/></inertial><visual><origin rpy="0 1.57079632679 0"/><geometry><cylinder radius="0.0155" length="0.061"/></geometry><material name="metal"/></visual><collision><origin rpy="0 1.57079632679 0"/><geometry><cylinder radius="0.0155" length="0.061"/></geometry></collision></link><joint name="bldc_motor_mount" type="fixed"><parent link="base_link"/><child link="bldc_motor"/><origin xyz="-0.090 -0.026 0.024"/></joint></robot>

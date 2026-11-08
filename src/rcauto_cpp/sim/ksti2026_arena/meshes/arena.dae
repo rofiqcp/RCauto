@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<COLLADA xmlns="http://www.collada.org/2005/11/COLLADASchema" version="1.4.1">
+<asset><contributor><authoring_tool>RCauto arena geometry</authoring_tool></contributor>
+<unit name="meter" meter="1"/><up_axis>Z_UP</up_axis></asset>
+<library_images><image id="arena_img"><init_from>../materials/textures/ksti2026_arena.png</init_from></image></library_images>
+<library_effects><effect id="arena_effect"><profile_COMMON>
+<newparam sid="arena_surface"><surface type="2D"><init_from>arena_img</init_from></surface></newparam>
+<newparam sid="arena_sampler"><sampler2D><source>arena_surface</source></sampler2D></newparam>
+<technique sid="common"><phong>
+<emission><color>0 0 0 1</color></emission>
+<ambient><color>1 1 1 1</color></ambient>
+<diffuse><texture texture="arena_sampler" texcoord="UVSET0"/></diffuse>
+<specular><color>0 0 0 1</color></specular>
+<shininess><float>0.0</float></shininess>
+</phong></technique></profile_COMMON></effect></library_effects>
+<library_materials><material id="arena_mat" name="arena_mat"><instance_effect url="#arena_effect"/></material></library_materials>
+<library_geometries><geometry id="arena_geo" name="arena_geo"><mesh>
+<source id="arena_vertices"><float_array id="arena_positions" count="12">-2.6263642292124323 -3.299108756810986 0 2.6263642292124323 -3.299108756810986 0 2.6263642292124323 3.299108756810986 0 -2.6263642292124323 3.299108756810986 0</float_array>
+<technique_common><accessor source="#arena_positions" count="4" stride="3">
+<param name="X" type="float"/><param name="Y" type="float"/><param name="Z" type="float"/>
+</accessor></technique_common></source>
+<source id="arena_uv"><float_array id="arena_uvs" count="8">0 0 1 0 1 1 0 1</float_array>
+<technique_common><accessor source="#arena_uvs" count="4" stride="2">
+<param name="S" type="float"/><param name="T" type="float"/>
+</accessor></technique_common></source>
+<vertices id="arena_vertex"><input semantic="POSITION" source="#arena_vertices"/></vertices>
+<triangles count="2" material="arena_symbol"><input semantic="VERTEX" source="#arena_vertex" offset="0"/>
+<input semantic="TEXCOORD" source="#arena_uv" offset="1" set="0"/>
+<p>0 0 1 1 2 2 0 0 2 2 3 3</p></triangles>
+</mesh></geometry></library_geometries>
+<library_visual_scenes><visual_scene id="scene">
+<node id="arena"><instance_geometry url="#arena_geo"><bind_material><technique_common>
+<instance_material symbol="arena_symbol" target="#arena_mat">
+<bind_vertex_input semantic="UVSET0" input_semantic="TEXCOORD" input_set="0"/>
+</instance_material></technique_common></bind_material></instance_geometry></node>
+</visual_scene></library_visual_scenes>
+<scene><instance_visual_scene url="#scene"/></scene>
+</COLLADA>

@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<sdf version="1.9"><model name="ksti2026_arena"><static>true</static>
+<link name="arena_floor">
+<collision name="ground"><geometry><plane><normal>0 0 1</normal><size>5.252728 6.598218</size></plane></geometry>
+<surface><friction><ode><mu>1.5</mu><mu2>1.5</mu2></ode></friction></surface></collision>
+<visual name="arena_artwork"><pose>0 0 0.002 0 0 0</pose>
+<geometry><mesh><uri>model://ksti2026_arena/meshes/arena.dae</uri></mesh></geometry>
+</visual></link></model></sdf>

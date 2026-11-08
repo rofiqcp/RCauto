@@ -1,0 +1,28 @@
+# Gazebo camera-only tuning; loaded only by rcauto_gazebo.launch.py.
+# Hardware defaults remain in robot.yaml.
+rcauto_cpp_controller:
+  ros__parameters:
+    controller:
+      pid:
+        kp: 1.75
+        ki: 0.0
+        kd: 0.04
+        max_output: 1.0
+      fuzzy:
+        error_weight: 1.85
+        rate_weight: 0.12
+        max_output: 1.0
+      ai:
+        output_gain: 1.95
+    drive:
+      max_steering_rad: 0.70
+      follow_speed_mps: 0.16
+      corner_speed_scale: 0.70
+    safety:
+      stale_s: 1.0
+
+rcauto_cpp_vision:
+  ros__parameters:
+    vision:
+      lookahead_weight: 0.85
+      error_smoothing_alpha: 0.42

@@ -4,7 +4,7 @@
 
 Platform riset mobil RC otonom untuk Raspberry Pi 5 (4 GB) dan akselerator Hailo. Targetnya mengikuti jalur/garis, mendeteksi persimpangan, memeriksa lampu lalu lintas, berhenti saat ada manusia/kendaraan/rintangan, lalu mengendalikan steering servo dan ESC secara terbatas dan aman. ROS 2 dipakai sebagai bus komunikasi; Foxglove untuk observabilitas.
 
-> **Status implementasi:** Paket ROS 2 Python `rcauto` menyediakan node, logika kontrol, simulasi dan tes. Paket `rcauto_cpp` telah berisi implementasi C++ awal (`controller`, `vision`, `perception`, `simulator`, `actuator`), tetapi **build, integrasi dan hardware-nya belum diverifikasi dalam panduan ini**. Untuk instalasi awal, gunakan paket Python `rcauto` terlebih dahulu. Model ONNX bawaan adalah *baseline sintetik*, bukan model mengemudi terlatih dari rekaman jalan nyata. Keberhasilan simulasi tidak membuktikan kesiapan operasi mobil fisik.
+> **Status implementasi:** Paket ROS 2 aktif hanya **`src/rcauto_cpp`** berbasis C++17. Controller, vision, perception, simulator, adapter Gazebo, dan actuator telah berhasil dibangun dari root proyek; unit test dan pengujian aliran sensor simulasi juga berhasil. Paket Python lama sudah dihapus. Integrasi kendaraan fisik dan Hailo belum dinyatakan lulus uji. Model ONNX bawaan adalah *baseline sintetik*, bukan model mengemudi terlatih dari rekaman jalan nyata. Keberhasilan simulasi tidak membuktikan kesiapan operasi mobil fisik.
 
 ## 1. Arsitektur dan alur program
 
@@ -12,7 +12,7 @@ Platform riset mobil RC otonom untuk Raspberry Pi 5 (4 GB) dan akselerator Hailo
 flowchart TD
     C[USB camera / kamera Raspberry Pi] --> SELECT{Sumber video}
     SELECT -->|USB/OpenCV| VIS[Vision ROS 2]
-    SELECT -->|Hailo GStreamer| H[Hailo detection bridge]
+    SELECT -->|Adapter Hailo eksternal| H[Hailo detection bridge]
     H -->|/rcauto/camera/image| VIS
     H -->|/rcauto/hazard| SAFE
     H -->|/rcauto/signal| SAFE
@@ -25,7 +25,7 @@ flowchart TD
     CTRL -->|PID / Fuzzy / ONNX baseline| DRIVE["/rcauto/drive · Ackermann"]
     DRIVE --> ACT[Actuator node: limit + watchdog]
     ACT -->|Dry run| STATUS["/rcauto/actuator_status"]
-    ACT -->|Hanya hardware_enabled=true| PWM[GPIO PWM -> servo + ESC]
+    ACT -->|Hanya hardware_enabled=true| PWM[PCA9685 I2C -> servo + ESC]
     SAFE -->|state / diagnostic| MON[Foxglove bridge :8767]
     CTRL --> MON
     VIS --> MON
@@ -65,11 +65,11 @@ flowchart TD
 
 **Urutan prioritas:** E-stop → disarm → data sensor hilang/tidak valid → rintangan → lampu di persimpangan → lane following. Hilangnya frame, data hazard yang basi, atau confidence kurang memadai menyebabkan kendaraan berhenti. *Reset* E-stop hanya saat kendaraan tidak armed. Command aktuator yang kedaluwarsa juga menyebabkan keluaran ESC kembali netral.
 
-### 1.2. Jalur C++ (pengembangan, terpisah dari paket Python)
+### 1.2. Jalur C++ utama dan simulator Gazebo
 
 ```mermaid
 flowchart LR
-    SIM[C++ simulator: image / detections / range] --> BUS[ROS 2 topics]
+    SIM[Gazebo Ackermann / simulator internal] --> BUS[ROS 2 topics]
     REAL[Camera + external Hailo Detection2D adapter] --> BUS
     BUS --> V[C++ vision: lane / intersection]
     BUS --> P[C++ perception: hazard / signal]
@@ -85,9 +85,9 @@ flowchart LR
     A --> FG
 ```
 
-**Perbedaan hardware:** node aktuator **Python** menggunakan GPIO PWM melalui `lgpio` (BCM18/BCM19), sedangkan aktuator **C++** saat ini menggunakan **PCA9685 melalui I²C** (`/dev/i2c-1`, alamat 0x40, channel 0/1) jika mode hardware diaktifkan. Jangan menjalankan kedua aktuator ke ESC yang sama bersamaan. Produksi deteksi Hailo ke `vision_msgs/Detection2DArray` untuk jalur C++ memerlukan adapter eksternal yang cocok dengan runtime Hailo. Node C++ dan pipeline gabungannya belum dikonfirmasi lulus build atau uji kendaraan.
+**Hardware C++:** node aktuator menggunakan **PCA9685 melalui I²C** (`/dev/i2c-1`, alamat 0x40, channel 0/1) hanya jika mode hardware diaktifkan. Default **dry-run**. Integrasi Hailo ke `vision_msgs/Detection2DArray` masih membutuhkan adapter eksternal. Keberhasilan build dan simulator tidak membuktikan kesiapan kendaraan fisik.
 
-Jika ingin mencoba build paket C++ secara terpisah di Ubuntu 24.04, pasang pula `ros-jazzy-vision-msgs`, `ros-jazzy-diagnostic-msgs`, `libopencv-dev`, dan `libi2c-dev`, lalu jalankan dari `src/ros2_ws`: `colcon build --packages-select rcauto_cpp`. Perbaiki error build yang ditemukan sebelum menjalankan node. Sesudah build berhasil dan environment disource, jalur simulasi C++ adalah `ros2 launch rcauto_cpp rcauto_cpp.launch.py simulation:=true hardware_enabled:=false`. Jangan gunakan mode hardware sampai seluruh uji dan interlock lulus.
+Build selalu dari root `RCauto/`: `colcon build --base-paths src --packages-select rcauto_cpp --symlink-install`. Source environment `install/setup.bash` di root. Jalankan simulator dengan `./tools/run_simulation.sh`; jangan aktifkan output hardware sebelum uji interlock fisik.
 
 ## 2. Struktur repository
 
@@ -96,28 +96,27 @@ RCauto/
 ├── README.md
 ├── .gitignore
 ├── src/
-│   ├── foxglove/rcauto_layout.json      # layout panel
-│   ├── models/line_policy_baseline.onnx # model steering sintetis
-│   ├── ros2_ws/
-│   │   └── src/
-│   │       ├── rcauto/                  # paket ROS 2 Python, aktif
-│   │       │   ├── rcauto/              # vision, Hailo, control, actuator, simulation
-│   │       │   ├── config/robot.yaml
-│   │       │   ├── launch/rcauto.launch.py
-│   │       │   └── test/
-│   │       └── rcauto_cpp/              # C++ dalam pengembangan
-│   └── tools -> ../tools               # alias kompatibilitas jalur lama
-└── tools/
-    ├── preflight.py
-    ├── run_simulation.sh
-    ├── run_pi5.sh
-    ├── train_ai.py
-    ├── collect_github.py
-    ├── collect_papers.py
-    └── enrich_oa_pdfs.py
+│   ├── rcauto_cpp/                     # satu-satunya paket ROS 2 (C++)
+│   │   ├── CMakeLists.txt
+│   │   ├── package.xml
+│   │   ├── include/rcauto_cpp/
+│   │   ├── src/                        # node C++ dan adapter Gazebo
+│   │   ├── config/robot.yaml
+│   │   ├── launch/                     # ROS 2 launch
+│   │   ├── sim/                        # simulator Gazebo Ackermann
+│   │   └── test/
+│   ├── foxglove/
+│   ├── models/
+│   ├── recordings/
+│   └── tools -> ../tools               # symlink ke tools root
+├── tools/
+├── referensi/github/                  # repositori penelitian lokal
+├── build/                             # hasil colcon (root)
+├── install/                           # hasil colcon (root)
+└── log/                               # hasil colcon (root)
 ```
 
-Direktori `referensi/`, `docs/`, rekaman kamera, dataset, hasil build `build/install/log`, cache, kredensial, dan file temporer **tidak diunggah ke GitHub**. Alias `src/tools` adalah symlink untuk kompatibilitas, bukan salinan program kedua.
+Paket sumber berada langsung di `src/rcauto_cpp/`. Folder `src/ros2_ws/` sudah dihapus. Referensi, rekaman, hasil build, cache dan data lokal tidak diunggah ke Git. Semua build wajib dijalankan dari root `RCauto/`.
 
 ## 3. Instalasi pada PC Linux baru — Ubuntu 24.04 LTS (amd64 atau arm64)
 
@@ -148,22 +147,20 @@ ros2 --help
 
 Jika ada paket yang tidak ditemukan, pastikan sumber ROS telah aktif dan Ubuntu sesuai rilis ROS; lihat panduan resmi di atas. Perintah instalasi ini ditujukan untuk Ubuntu, **bukan** Raspberry Pi OS (Debian).
 
-### 3.2. Clone branch `v1`, build paket Python
+### 3.2. Clone branch `v1` dan build C++ dari root
 
 ```bash
 mkdir -p ~/projects
 cd ~/projects
 git clone --branch v1 --single-branch https://github.com/rofiqcp/RCauto.git
 cd RCauto
-python3 tools/preflight.py
-source /opt/ros/jazzy/setup.bash
-cd src/ros2_ws
-colcon build --packages-select rcauto --symlink-install
+source /opt/ros/humble/setup.bash  # Ubuntu 22.04; gunakan jazzy pada Ubuntu 24.04
+colcon build --base-paths src --packages-select rcauto_cpp --symlink-install
 source install/setup.bash
-ros2 pkg executables rcauto
+ros2 pkg executables rcauto_cpp
 ```
 
-Untuk instalasi awal, gunakan `--packages-select rcauto`; paket C++ memerlukan pemeriksaan dependensi dan build terpisah. Build tidak mengaktifkan GPIO kendaraan. Untuk shell baru, jalankan lagi `source /opt/ros/jazzy/setup.bash` dan `source ~/projects/RCauto/src/ros2_ws/install/setup.bash`.
+Tidak ada paket Python ROS 2 lama. Pada sistem baru, sesuaikan dependensi ROS 2 dengan versi Ubuntu. Folder `build/`, `install/`, dan `log/` otomatis dibuat pada root proyek. File `*.launch.py` diperlukan untuk mekanisme launch ROS 2, bukan node aplikasi Python.
 
 ### 3.3. Simulasi aman di PC
 
@@ -172,11 +169,11 @@ cd ~/projects/RCauto
 bash tools/run_simulation.sh
 ```
 
-Simulasi menerbitkan kamera virtual, hazard=false, signal=UNKNOWN dan menggunakan jalur ROS. **Keluaran servo/ESC selalu nonaktif**. Terminal baru untuk inspeksi:
+Default adalah simulasi Gazebo Harmonic menggunakan arena KSTI 2026 yang direkonstruksi dari foto, dengan **lebar lintasan 50 cm**, dimensi luar perkiraan **5,01 × 6,34 m**, garis tepi putih, garis tengah putih putus-putus, dan logo tengah. Model kendaraan fisika Ackermann 35 × 20 cm memakai kamera, LiDAR, dan odometri. Tampilan arena dari atas tersedia pada `/rcauto/arena/overview` di Foxglove. File world ada di `src/rcauto_cpp/sim/rcauto_track.sdf`; tekstur dan mesh ada di `src/rcauto_cpp/sim/ksti2026_arena/`. Berkas `sim/maps/ksti2026_f1tenth.yaml` + `.png` adalah peta okupansi yang dapat dipakai pada F1TENTH kompatibel, sedangkan `sim/maps/ksti2026_centerline.csv` berisi waypoint lintasan. Pengujian nyata dilakukan di Gazebo; simulator F1TENTH ROS 2 Jazzy belum diuji pada komputer Humble. Bila tanpa `DISPLAY`, skrip memakai Xvfb/renderer software. Alternatif simulator sintetis: `RCAUTO_SIM_BACKEND=synthetic ./tools/run_simulation.sh`. **Keluaran servo/ESC fisik tetap nonaktif (dry-run)**. Uji bergerak di arena mencapai sekitar 1,83 m, lalu berhenti aman saat garis hilang; satu putaran penuh masih memerlukan peningkatan kontrol. Terminal baru untuk inspeksi:
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-source ~/projects/RCauto/src/ros2_ws/install/setup.bash
+source ~/projects/RCauto/install/setup.bash
 ros2 topic list
 ros2 topic echo /rcauto/status
 ros2 topic echo /rcauto/actuator_status
@@ -192,7 +189,7 @@ Konfigurasi awal `hardware_enabled=false`. Untuk mengetes perubahan algoritma, j
 1. Jalankan simulasi. Bridge berjalan pada alamat `127.0.0.1:8767` melalui WebSocket.
 2. Di [Foxglove](https://foxglove.dev/), buka koneksi **Foxglove WebSocket** ke `ws://127.0.0.1:8767` (satu PC).
 3. Import layout `src/foxglove/rcauto_layout.json`, kemudian pantau image, lane offset/confidence, hazard, traffic light, drive, state, serta status aktuator.
-4. Mode kendali dapat diubah saat **disarmed** melalui `/rcauto/operator/mode` (String: `pid`, `fuzzy`, atau `ai` jika ONNX Runtime siap). Parameter dasar ada di `src/ros2_ws/src/rcauto/config/robot.yaml`.
+4. Mode kendali dapat diubah saat **disarmed** melalui `/rcauto/operator/mode` (String: `pid`, `fuzzy`, atau `ai` jika model ONNX berhasil dimuat melalui OpenCV DNN). Parameter dasar ada di `src/rcauto_cpp/config/robot.yaml`.
 
 Topik penting:
 
@@ -217,33 +214,28 @@ Untuk akses Foxglove dari PC lain, alamat bind perlu diatur secara eksplisit dan
 
 ## 5. Raspberry Pi 5 + Hailo + servo + ESC
 
-**Penting:** Linux PC Ubuntu dan Raspberry Pi OS tidak memiliki jalur instalasi ROS/Hailo yang otomatis identik. Raspberry Pi OS 64-bit adalah sistem yang didukung resmi untuk AI HAT+; panduan Hailo/driver dan ROS 2 pada Pi harus cocok dengan OS serta arsitektur. Referensi: [Raspberry Pi AI Software](https://www.raspberrypi.com/documentation/computers/ai.html) dan [Hailo Apps](https://github.com/hailo-ai/hailo-apps).
+`tools/run_pi5.sh` menjalankan paket C++ yang sama dengan simulator. Build dilakukan dari **root RCauto**. Default `RCAUTO_HW_OUTPUT=false`, sehingga tidak ada keluaran ESC atau servo fisik. Untuk sensor AI HAT/Hailo, diperlukan **adapter ROS 2 eksternal** yang menerbitkan `vision_msgs/Detection2DArray`; pemasangan Hailo sendiri belum membuktikan adapter kompatibel.
 
-1. Pasang Raspberry Pi 5, AI HAT/Hailo dan kamera menurut dokumentasi produsennya. Gunakan catu daya Pi dan catu ESC terpisah sesuai spesifikasi; **satukan GND sinyal** dan pastikan input servo/ESC menerima logika 3,3 V.
-2. Pada Raspberry Pi OS yang didukung, pasang driver Hailo (AI Kit/AI HAT+: `sudo apt install dkms hailo-all`; AI HAT+ 2: `sudo apt install dkms hailo-h10-all`, bukan keduanya). Reboot dan jalankan `hailortcli fw-control identify`; uji kamera dengan `rpicam-hello`.
-3. Node `hailo_bridge` memerlukan runtime Python `hailo_apps` dan GStreamer yang kompatibel; **tidak otomatis tersedia hanya dengan `hailo-all`**. Ikuti pemasangan Hailo Apps untuk perangkat/OS yang dipakai. Verifikasi `python3 tools/preflight.py`.
-4. Pasang ROS 2 dan dependensi proyek pada sistem yang kompatibel, build paket `rcauto` dengan colcon seperti bagian 3. Jalankan dulu dengan `hardware_enabled:=false` dan `RCAUTO_USE_HAILO=false`, lalu uji input kamera/Hailo secara terpisah.
-5. Jalur awal **paket Python** pada `robot.yaml`: **steering GPIO BCM18**, **ESC GPIO BCM19**; pulse default steering center 1500 µs (1100–1900), ESC netral 1500 µs, maju maksimum 1600 µs. Ini adalah **konfigurasi awal untuk kalibrasi**, bukan jaminan cocok untuk ESC/servo tertentu. Periksa nomor `gpiochip`, mapping GPIO Pi 5, permission perangkat, rentang pulsa, serta persyaratan `lgpio` pada hardware nyata.
-6. Tidak boleh mengaktifkan motor tanpa roda terangkat, kill switch fisik dan batas arus/kecepatan yang benar. Sakelar pemutus daya motor fisik harus tersedia di luar jalur ROS dan aplikasi.
+Node aktuator C++ menggunakan PCA9685 via I²C (default `/dev/i2c-1`, alamat `0x40`, channel steering 0 dan ESC 1), bukan GPIO PWM paket Python lama. Parameter pulse/kecepatan adalah titik awal kalibrasi, bukan jaminan cocok bagi perangkat tertentu. Gunakan catu daya motor terpisah, GND sinyal yang benar, kalibrasi serta pengaman listrik.
 
-Setelah validasi terpisah dan hardware betul-betul aman, skrip `tools/run_pi5.sh` mendukung environment `RCAUTO_MODE`, `RCAUTO_LANE_STYLE`, `RCAUTO_USE_HAILO`, `RCAUTO_HW_OUTPUT` dan `RCAUTO_FOXGLOVE_ADDRESS`. Secara default, output PWM **off**. Skrip menolak PWM live jika `RCAUTO_LIVE_ACK` tidak diatur tepat `WHEELS_UP_ESC_CALIBRATED`. Pengaturan acknowledgement ini **bukan pengganti interlock fisik**.
+Pengaktifan keluaran fisik hanya untuk pengujian pada workbench dengan roda terangkat, pemutus darurat eksternal, dan pengawasan operator. Skrip menolak output langsung kecuali ada pengakuan eksplisit `RCAUTO_LIVE_ACK=CONFIRM_WHEELS_UP_EXTERNAL_ESTOP`; konfirmasi perangkat lunak tidak menggantikan pengaman fisik.
 
 ## 6. Pengujian
 
 ```bash
+source /opt/ros/humble/setup.bash  # atau jazzy pada Ubuntu 24.04
 cd ~/projects/RCauto
-python3 -m compileall -q src/ros2_ws/src/rcauto tools
-source /opt/ros/jazzy/setup.bash
-cd src/ros2_ws
-colcon test --packages-select rcauto
-colcon test-result --verbose
+colcon build --base-paths src --packages-select rcauto_cpp --symlink-install
+ctest --test-dir build/rcauto_cpp --output-on-failure
+source install/setup.bash
+ros2 pkg executables rcauto_cpp
 ```
 
-Tes Python mencakup logika state machine dan persepsi. Tes hardware Raspberry Pi/Hailo/servo/ESC dan mutu deteksi di lingkungan nyata belum dapat dianggap lulus hanya berdasarkan uji unit/simulasi. Mode `ai` memerlukan `onnxruntime` dan model ONNX sesuai arsitektur Python/CPU; baseline bawaan dilatih dari target sintetis (`tools/train_ai.py`).
+Build setelah pemindahan direktori telah berhasil dari root proyek, termasuk keenam executable C++ dan unit test `rcauto_core_test`. Launcher Gazebo, validasi SDF, aliran kamera, LiDAR dan odometri telah diuji pada komputer `sirobo`. Ini belum merupakan uji integrasi Hailo maupun kendaraan fisik. Mode AI menggunakan model ONNX melalui OpenCV DNN; model baseline masih sintetis.
 
 ## 7. Peta pengembangan
 
-- Memvalidasi build dan integrasi node C++ (`controller`, `vision`, `perception`, `simulator`, `actuator`), menguji launch/config/tes yang sudah tersedia, lalu memverifikasi kesetaraan terhadap paket Python.
+- Lanjutkan pengujian kendali dan persepsi di Gazebo dengan model Ackermann yang telah terpasang pada `src/rcauto_cpp/sim/`, termasuk lintasan, lampu dan rintangan.
 - Validasi model Hailo sesuai kamera dan AI HAT, serta deteksi pejalan kaki/kendaraan/lampu nyata dengan dataset sendiri.
 - Kalibrasi steering/ESC Pi 5, failsafe listrik independen, pengukuran latency dan watchdog end-to-end.
 - Pengujian jalur/perempatan berulang, kriteria berhenti/melintas, telemetry Foxglove, dan logging pengujian ke lokasi **lokal** yang tidak ikut Git.

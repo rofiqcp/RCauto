@@ -1,0 +1,309 @@
+{
+  "configById": {
+    "Parameters!rcacppparams": {
+      "foxglovePanelTitle": "Parameter Live - PID, Fuzzy, Vision, ESC (disarm terlebih dahulu)"
+    },
+    "Plot!rcacppplot": {
+      "paths": [
+        {
+          "value": "/rcauto/vision/lane_error_raw.data",
+          "enabled": true,
+          "label": "Raw camera lane error",
+          "timestampMethod": "receiveTime"
+        },
+        {
+          "value": "/rcauto/lane_error.data",
+          "enabled": true,
+          "label": "Lane error",
+          "timestampMethod": "receiveTime"
+        },
+        {
+          "value": "/rcauto/lane_confidence.data",
+          "enabled": true,
+          "label": "Confidence",
+          "timestampMethod": "receiveTime"
+        },
+        {
+          "value": "/rcauto/tuning/steer_norm.data",
+          "enabled": true,
+          "label": "Normalized steering",
+          "timestampMethod": "receiveTime"
+        },
+        {
+          "value": "/rcauto/drive.drive.speed",
+          "enabled": true,
+          "label": "Speed (m/s)",
+          "timestampMethod": "receiveTime"
+        }
+      ],
+      "followingViewWidth": 30,
+      "timeRange": "latest",
+      "timeWindowMode": "sliding",
+      "xAxisVal": "timestamp",
+      "foxglovePanelTitle": "Controller Tuning"
+    },
+    "Image!rcacppcam": {
+      "imageMode": {
+        "imageTopic": "/rcauto/camera/annotated",
+        "calibrationTopic": ""
+      },
+      "foxglovePanelTitle": "Deteksi Garis Kamera - Segmentasi, Target, Error"
+    },
+    "RawMessages!rcacppstatus": {
+      "topicPath": "/rcauto/status",
+      "defaultExpanded": true,
+      "foxglovePanelTitle": "FSM State"
+    },
+    "RawMessages!rcacppact": {
+      "topicPath": "/rcauto/actuator_status",
+      "defaultExpanded": true,
+      "foxglovePanelTitle": "ESC / Steering PWM"
+    },
+    "RawMessages!rcacppsignal": {
+      "topicPath": "/rcauto/signal",
+      "defaultExpanded": true,
+      "foxglovePanelTitle": "Traffic Light"
+    },
+    "RawMessages!rcacpphazard": {
+      "topicPath": "/rcauto/hazard",
+      "defaultExpanded": true,
+      "foxglovePanelTitle": "Obstacle"
+    },
+    "RawMessages!rcacpprange": {
+      "topicPath": "/rcauto/range",
+      "defaultExpanded": true,
+      "foxglovePanelTitle": "Distance Sensor"
+    },
+    "Publish!rcacppestop": {
+      "topicName": "/rcauto/operator/estop",
+      "datatype": "std_msgs/msg/Bool",
+      "value": "{\"data\":true}",
+      "buttonText": "EMERGENCY STOP",
+      "buttonColor": "#c01e21",
+      "buttonTooltip": "Hardware must remain disarmed for tuning/mode changes"
+    },
+    "Publish!rcacppdisarm": {
+      "topicName": "/rcauto/operator/enable",
+      "datatype": "std_msgs/msg/Bool",
+      "value": "{\"data\":false}",
+      "buttonText": "DISARM",
+      "buttonColor": "#d07b0e",
+      "buttonTooltip": "Hardware must remain disarmed for tuning/mode changes"
+    },
+    "Publish!rcacppenable": {
+      "topicName": "/rcauto/operator/enable",
+      "datatype": "std_msgs/msg/Bool",
+      "value": "{\"data\":true}",
+      "buttonText": "ARM - test only",
+      "buttonColor": "#666f80",
+      "buttonTooltip": "Hardware must remain disarmed for tuning/mode changes"
+    },
+    "Publish!rcacppreset": {
+      "topicName": "/rcauto/operator/reset_estop",
+      "datatype": "std_msgs/msg/Bool",
+      "value": "{\"data\":true}",
+      "buttonText": "RESET E-STOP",
+      "buttonColor": "#777777",
+      "buttonTooltip": "Hardware must remain disarmed for tuning/mode changes"
+    },
+    "Publish!rcacpppid": {
+      "topicName": "/rcauto/operator/mode",
+      "datatype": "std_msgs/msg/String",
+      "value": "{\"data\":\"pid\"}",
+      "buttonText": "PID",
+      "buttonColor": "#27689e",
+      "buttonTooltip": "Hardware must remain disarmed for tuning/mode changes"
+    },
+    "Publish!rcacppfuzzy": {
+      "topicName": "/rcauto/operator/mode",
+      "datatype": "std_msgs/msg/String",
+      "value": "{\"data\":\"fuzzy\"}",
+      "buttonText": "FUZZY",
+      "buttonColor": "#27689e",
+      "buttonTooltip": "Hardware must remain disarmed for tuning/mode changes"
+    },
+    "Publish!rcacppai": {
+      "topicName": "/rcauto/operator/mode",
+      "datatype": "std_msgs/msg/String",
+      "value": "{\"data\":\"ai\"}",
+      "buttonText": "AI",
+      "buttonColor": "#27689e",
+      "buttonTooltip": "Hardware must remain disarmed for tuning/mode changes"
+    },
+    "Image!rcacppworld": {
+      "imageMode": {
+        "imageTopic": "/rcauto/arena/overview",
+        "calibrationTopic": ""
+      },
+      "foxglovePanelTitle": "Arena KSTI - Kamera Tampak Atas (monitor saja)"
+    },
+    "Plot!rcacpppwm": {
+      "paths": [
+        {
+          "value": "/rcauto/actuator/steering_pwm_ms.data",
+          "enabled": true,
+          "label": "Steering PWM (ms)",
+          "timestampMethod": "receiveTime"
+        },
+        {
+          "value": "/rcauto/actuator/esc_pwm_ms.data",
+          "enabled": true,
+          "label": "ESC PWM (ms)",
+          "timestampMethod": "receiveTime"
+        }
+      ],
+      "followingViewWidth": 30,
+      "timeRange": "latest",
+      "timeWindowMode": "fixed",
+      "foxglovePanelTitle": "PWM Aktual Servo/ESC (ms) | batas tampilan 0.6-2.4ms"
+    },
+    "Plot!rcacppcommand": {
+      "paths": [
+        {
+          "value": "/rcauto/actuator/steering_rad.data",
+          "enabled": true,
+          "label": "Steering (rad)",
+          "timestampMethod": "receiveTime"
+        },
+        {
+          "value": "/rcauto/actuator/esc_speed_mps.data",
+          "enabled": true,
+          "label": "ESC speed (m/s)",
+          "timestampMethod": "receiveTime"
+        },
+        {
+          "value": "/rcauto/actuator/steering_normalized.data",
+          "enabled": true,
+          "label": "Steering normalized",
+          "timestampMethod": "receiveTime"
+        },
+        {
+          "value": "/rcauto/actuator/esc_normalized.data",
+          "enabled": true,
+          "label": "ESC normalized",
+          "timestampMethod": "receiveTime"
+        }
+      ],
+      "followingViewWidth": 30,
+      "timeRange": "latest",
+      "timeWindowMode": "fixed",
+      "foxglovePanelTitle": "Output Aktual Variabel Kontrol"
+    },
+    "RawMessages!rcacppdrive": {
+      "topicPath": "/rcauto/drive",
+      "defaultExpanded": true,
+      "foxglovePanelTitle": "Perintah Ackermann C++"
+    },
+    "RawMessages!rcacppsteer": {
+      "topicPath": "/rcauto/actuator/steering_pwm_ms",
+      "defaultExpanded": true,
+      "foxglovePanelTitle": "Steering PWM (ms)"
+    },
+    "RawMessages!rcacppesc": {
+      "topicPath": "/rcauto/actuator/esc_pwm_ms",
+      "defaultExpanded": true,
+      "foxglovePanelTitle": "ESC PWM (ms)"
+    }
+  },
+  "layout": {
+    "direction": "row",
+    "splitPercentage": 52,
+    "first": {
+      "direction": "column",
+      "splitPercentage": 56,
+      "first": {
+        "direction": "row",
+        "splitPercentage": 52,
+        "first": "Image!rcacppcam",
+        "second": "Image!rcacppworld"
+      },
+      "second": {
+        "direction": "column",
+        "splitPercentage": 50,
+        "first": "Plot!rcacppplot",
+        "second": {
+          "direction": "row",
+          "splitPercentage": 50,
+          "first": "Plot!rcacpppwm",
+          "second": "Plot!rcacppcommand"
+        }
+      }
+    },
+    "second": {
+      "direction": "column",
+      "splitPercentage": 32,
+      "first": {
+        "direction": "column",
+        "splitPercentage": 60,
+        "first": {
+          "direction": "column",
+          "splitPercentage": 50,
+          "first": {
+            "direction": "row",
+            "splitPercentage": 50,
+            "first": "Publish!rcacppestop",
+            "second": "Publish!rcacppdisarm"
+          },
+          "second": {
+            "direction": "row",
+            "splitPercentage": 50,
+            "first": "Publish!rcacppreset",
+            "second": "Publish!rcacppenable"
+          }
+        },
+        "second": {
+          "direction": "row",
+          "splitPercentage": 35,
+          "first": "Publish!rcacpppid",
+          "second": {
+            "direction": "row",
+            "splitPercentage": 50,
+            "first": "Publish!rcacppfuzzy",
+            "second": "Publish!rcacppai"
+          }
+        }
+      },
+      "second": {
+        "direction": "column",
+        "splitPercentage": 65,
+        "first": "Parameters!rcacppparams",
+        "second": {
+          "direction": "column",
+          "splitPercentage": 55,
+          "first": {
+            "direction": "column",
+            "splitPercentage": 58,
+            "first": "RawMessages!rcacppstatus",
+            "second": {
+              "direction": "row",
+              "splitPercentage": 50,
+              "first": "RawMessages!rcacppsignal",
+              "second": "RawMessages!rcacpphazard"
+            }
+          },
+          "second": {
+            "direction": "column",
+            "splitPercentage": 45,
+            "first": {
+              "direction": "row",
+              "splitPercentage": 50,
+              "first": "RawMessages!rcacppdrive",
+              "second": "RawMessages!rcacppact"
+            },
+            "second": {
+              "direction": "row",
+              "splitPercentage": 50,
+              "first": "RawMessages!rcacppsteer",
+              "second": "RawMessages!rcacppesc"
+            }
+          }
+        }
+      }
+    }
+  },
+  "globalVariables": {},
+  "playbackConfig": {
+    "speed": 1
+  },
+  "userNodes": {}
+}

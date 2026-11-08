@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>rcauto_cpp</name><version>0.2.0</version>
+  <description>Safety-gated RC vehicle ROS 2 C++ autonomy and Foxglove tuning</description>
+  <maintainer email="rcauto@localhost.invalid">RCauto research</maintainer><license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend><depend>std_msgs</depend><depend>sensor_msgs</depend><depend>geometry_msgs</depend>
+  <depend>ackermann_msgs</depend><depend>vision_msgs</depend><depend>nav_msgs</depend><depend>tf2_ros</depend>
+  <depend>cv_bridge</depend><depend>diagnostic_msgs</depend>
+  <exec_depend>robot_state_publisher</exec_depend><exec_depend>xacro</exec_depend>
+  <exec_depend>foxglove_bridge</exec_depend>
+  <exec_depend>ros2launch</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend><exec_depend>ros_gz_sim</exec_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>
