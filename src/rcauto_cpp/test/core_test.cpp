@@ -190,5 +190,26 @@ int main() {
   assert(invalid_clock.update(safe(), 75, false, lim).first == State::Disarmed);
   StateMachine nan_clock;
   assert(nan_clock.update(safe(), std::numeric_limits<double>::quiet_NaN(), true, lim).first == State::SensorStop);
+  // Camera preview must trigger braking before the vehicle enters a curve.
+  const double straight_risk = camera_risk(0.01, 0.02, 0.0, 0.95, 1.0);
+  const double curve_risk = camera_risk(0.10, 0.70, 0.75, 0.95, 1.0);
+  assert(curve_risk > straight_risk);
+  VisualSpeedPid speed_pid;
+  speed_pid.set_gains(Gains{1.9,0.0,0.06,1.0});
+  const double fast = speed_pid.calculate(straight_risk, 0.05);
+  speed_pid.reset();
+  const double slow = speed_pid.calculate(curve_risk, 0.05);
+  assert(fast > slow && fast <= 1.0 && slow >= 0.25);
+  FuzzyThrottle fuzzy_speed;
+  fuzzy_speed.set_aggressiveness(1.0);
+  const double fuzzy_fast = fuzzy_speed.calculate(straight_risk, 0.05);
+  fuzzy_speed.reset();
+  const double fuzzy_slow = fuzzy_speed.calculate(curve_risk, 0.05);
+  assert(fuzzy_fast > fuzzy_slow);
+  assert(fuzzy_slow >= 0.25 && fuzzy_fast <= 1.0);
+  bool bad_throttle_rejected = false;
+  try { fuzzy_speed.set_aggressiveness(-1); }
+  catch (const std::invalid_argument&) { bad_throttle_rejected = true; }
+  assert(bad_throttle_rejected);
   std::cout<<"PASS: PID, fuzzy, NaN, stale watchdog, obstacle, signal, FSM, E-stop, crossing timeout, invalid ages and clock rollback\n";
 }

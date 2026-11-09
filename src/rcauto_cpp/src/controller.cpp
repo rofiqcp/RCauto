@@ -38,10 +38,18 @@ class ControllerNode final : public rclcpp::Node {
     declare_parameter("controller.fuzzy.max_output", 0.85);
     declare_parameter("controller.ai.model_path", "");
     declare_parameter("controller.ai.output_gain", 1.0);
+    declare_parameter("controller.speed_pid.kp", 1.9);
+    declare_parameter("controller.speed_pid.ki", 0.0);
+    declare_parameter("controller.speed_pid.kd", 0.06);
+    declare_parameter("controller.fuzzy.speed_aggressiveness", 1.0);
     declare_parameter("drive.max_steering_rad", 0.35);
     declare_parameter("drive.max_speed_mps", 0.18);
     declare_parameter("drive.follow_speed_mps", 0.18);
     declare_parameter("drive.corner_speed_scale", 1.0);
+    declare_parameter("drive.steering_deadband_norm", 0.035);
+    declare_parameter("drive.steering_slew_rad_s", 2.8);
+    declare_parameter("drive.accel_mps2", 0.48);
+    declare_parameter("drive.decel_mps2", 1.1);
     declare_parameter("drive.cross_speed_mps", 0.11);
     declare_parameter("safety.stale_s", 0.6);
     declare_parameter("safety.min_lane_confidence", 0.4);
@@ -71,7 +79,10 @@ class ControllerNode final : public rclcpp::Node {
       startup_double("controller.pid.kp"), startup_double("controller.pid.ki"),
       startup_double("controller.pid.kd"), startup_double("controller.pid.max_output")};
     rcauto::Pid validated_startup_pid(startup_gains);
+    rcauto::Pid validated_startup_speed_pid({startup_double("controller.speed_pid.kp"),
+      startup_double("controller.speed_pid.ki"), startup_double("controller.speed_pid.kd"),1.0});
     (void)validated_startup_pid;
+    (void)validated_startup_speed_pid;
     // YAML and CLI overrides bypass the runtime parameter callback at startup.
     const auto startup_range = [&startup_double](const char* name, double low, double high) {
       const double value = startup_double(name);
@@ -85,6 +96,11 @@ class ControllerNode final : public rclcpp::Node {
     startup_range("controller.fuzzy.rate_weight", 0.0, 2.0);
     startup_range("controller.fuzzy.max_output", std::numeric_limits<double>::min(), 1.0);
     startup_range("controller.ai.output_gain", 0.5, 2.0);
+    startup_range("controller.fuzzy.speed_aggressiveness", 0.5, 2.0);
+    startup_range("drive.steering_deadband_norm", 0.0, 0.15);
+    startup_range("drive.steering_slew_rad_s", 0.1, 8.0);
+    startup_range("drive.accel_mps2", 0.05, 3.0);
+    startup_range("drive.decel_mps2", 0.1, 5.0);
     startup_range("safety.stale_s", 0.1, 1.0);
     startup_range("safety.min_lane_confidence", 0.1, 1.0);
     startup_range("safety.green_hold_s", 0.2, 5.0);
@@ -110,6 +126,22 @@ class ControllerNode final : public rclcpp::Node {
     sub_lane_ = create_subscription<std_msgs::msg::Float32>("/rcauto/lane_error", qos,
       [this](std_msgs::msg::Float32::ConstSharedPtr m) {
         observation_.error = m->data; stamp_lane_ = Steady::now();
+      });
+    sub_near_ = create_subscription<std_msgs::msg::Float32>("/rcauto/vision/near_error", qos,
+      [this](std_msgs::msg::Float32::ConstSharedPtr m) {
+        if (std::isfinite(m->data)) { near_error_ = m->data; stamp_preview_ = Steady::now(); }
+      });
+    sub_far_ = create_subscription<std_msgs::msg::Float32>("/rcauto/vision/far_error", qos,
+      [this](std_msgs::msg::Float32::ConstSharedPtr m) {
+        if (std::isfinite(m->data)) { far_error_ = m->data; stamp_preview_ = Steady::now(); }
+      });
+    sub_curvature_ = create_subscription<std_msgs::msg::Float32>("/rcauto/vision/curvature", qos,
+      [this](std_msgs::msg::Float32::ConstSharedPtr m) {
+        if (std::isfinite(m->data)) curvature_ = m->data;
+      });
+    sub_preview_ = create_subscription<std_msgs::msg::Float32>("/rcauto/vision/preview_visibility", qos,
+      [this](std_msgs::msg::Float32::ConstSharedPtr m) {
+        if (std::isfinite(m->data)) preview_visibility_ = m->data;
       });
     sub_conf_ = create_subscription<std_msgs::msg::Float32>("/rcauto/lane_confidence", qos,
       [this](std_msgs::msg::Float32::ConstSharedPtr m) {
@@ -138,7 +170,11 @@ class ControllerNode final : public rclcpp::Node {
     sub_enable_ = create_subscription<std_msgs::msg::Bool>("/rcauto/operator/enable", qos,
       [this](std_msgs::msg::Bool::ConstSharedPtr m) {
         if (m->data && !estop_) armed_ = true;
-        else { armed_ = false; pid_.reset(); fuzzy_.reset(); }
+        else {
+          armed_ = false; pid_.reset(); fuzzy_.reset();
+          speed_pid_.reset(); fuzzy_throttle_.reset();
+          commanded_speed_ = last_steering_norm_ = 0;
+        }
       });
     sub_estop_ = create_subscription<std_msgs::msg::Bool>("/rcauto/operator/estop", qos,
       [this](std_msgs::msg::Bool::ConstSharedPtr m) {
@@ -161,6 +197,9 @@ class ControllerNode final : public rclcpp::Node {
     pub_drive_ = create_publisher<ackermann_msgs::msg::AckermannDriveStamped>("/rcauto/drive", qos);
     pub_state_ = create_publisher<std_msgs::msg::String>("/rcauto/status", qos);
     pub_steer_ = create_publisher<std_msgs::msg::Float32>("/rcauto/tuning/steer_norm", qos);
+    pub_speed_factor_ = create_publisher<std_msgs::msg::Float32>("/rcauto/tuning/speed_factor", qos);
+    pub_risk_ = create_publisher<std_msgs::msg::Float32>("/rcauto/tuning/visual_risk", qos);
+    pub_preview_speed_ = create_publisher<std_msgs::msg::Float32>("/rcauto/tuning/speed_command_mps", qos);
     timer_ = create_wall_timer(50ms, [this] { tick(); });
     last_tick_ = Steady::now();
     RCLCPP_INFO(get_logger(), "C++ autonomy initialized; DISARMED, mode=%s", mode_.c_str());
@@ -227,15 +266,28 @@ class ControllerNode final : public rclcpp::Node {
           const double val = p.as_double();
           if (!std::isfinite(val)) throw std::invalid_argument("parameter must be finite");
           if (name == "controller.pid.kp" || name == "controller.pid.ki" ||
-              name == "controller.pid.kd") {
+              name == "controller.pid.kd" ||
+              name == "controller.speed_pid.kp" || name == "controller.speed_pid.ki" ||
+              name == "controller.speed_pid.kd") {
             if (val < 0 || val > 8) throw std::invalid_argument("PID gain out of range [0,8]");
           } else if (name.find("max_output") != std::string::npos) {
             if (val <= 0 || val > 1) throw std::invalid_argument("output limit out of range");
           } else if (name.find("weight") != std::string::npos) {
             if (val < 0 || val > 2) throw std::invalid_argument("fuzzy weight out of range");
+          } else if (name == "controller.fuzzy.speed_aggressiveness") {
+            if (val < 0.5 || val > 2.0)
+              throw std::invalid_argument("fuzzy throttle aggression outside [0.5,2]");
           } else if (name == "controller.ai.output_gain") {
             if (val < 0.5 || val > 2.0)
               throw std::invalid_argument("AI output gain out of range [0.5,2]");
+          } else if (name == "drive.steering_deadband_norm") {
+            if (val < 0 || val > 0.15) throw std::invalid_argument("invalid steering deadband");
+          } else if (name == "drive.steering_slew_rad_s") {
+            if (val < 0.1 || val > 8.0) throw std::invalid_argument("invalid steering slew");
+          } else if (name == "drive.accel_mps2") {
+            if (val < 0.05 || val > 3.0) throw std::invalid_argument("invalid acceleration");
+          } else if (name == "drive.decel_mps2") {
+            if (val < 0.1 || val > 5.0) throw std::invalid_argument("invalid deceleration");
           } else if (name == "drive.corner_speed_scale") {
             if (val < 0.4 || val > 1.0)
               throw std::invalid_argument("corner speed scale outside [0.4,1]");
@@ -282,6 +334,10 @@ class ControllerNode final : public rclcpp::Node {
   void refresh() {
     mode_ = get_parameter("controller.mode").as_string();
     ai_gain_ = get_parameter("controller.ai.output_gain").as_double();
+    steer_deadband_ = get_parameter("drive.steering_deadband_norm").as_double();
+    steer_slew_ = get_parameter("drive.steering_slew_rad_s").as_double();
+    acceleration_ = get_parameter("drive.accel_mps2").as_double();
+    deceleration_ = get_parameter("drive.decel_mps2").as_double();
     max_steer_ = get_parameter("drive.max_steering_rad").as_double();
     max_speed_ = get_parameter("drive.max_speed_mps").as_double();
     corner_speed_scale_ = get_parameter("drive.corner_speed_scale").as_double();
@@ -302,6 +358,11 @@ class ControllerNode final : public rclcpp::Node {
     gains.kd = get_parameter("controller.pid.kd").as_double();
     gains.max_output = get_parameter("controller.pid.max_output").as_double();
     pid_.set_gains(gains);
+    speed_pid_.set_gains({get_parameter("controller.speed_pid.kp").as_double(),
+       get_parameter("controller.speed_pid.ki").as_double(),
+       get_parameter("controller.speed_pid.kd").as_double(), 1.0});
+    fuzzy_throttle_.set_aggressiveness(
+       get_parameter("controller.fuzzy.speed_aggressiveness").as_double());
     fuzzy_.set(get_parameter("controller.fuzzy.error_weight").as_double(),
                get_parameter("controller.fuzzy.rate_weight").as_double(),
                get_parameter("controller.fuzzy.max_output").as_double());
@@ -312,10 +373,12 @@ class ControllerNode final : public rclcpp::Node {
       if (!path.empty()) {
         try {
           ai_net_ = cv::dnn::readNetFromONNX(path);
-          float example[] = {0.0F, 0.0F};
-          ai_net_.setInput(cv::Mat(1, 2, CV_32F, example).clone());
+          float example[] = {0.0F, 0.0F, 0.0F, 0.0F, 0.24F};
+          ai_net_.setInput(cv::Mat(1, 5, CV_32F, example).clone());
           cv::Mat out = ai_net_.forward();
-          ai_ready_ = !out.empty() && std::isfinite(out.at<float>(0));
+          ai_ready_ = out.rows == 1 && out.cols == 2 &&
+              std::isfinite(out.at<float>(0,0)) && std::isfinite(out.at<float>(0,1)) &&
+              out.at<float>(0,1) >= 0.20F && out.at<float>(0,1) <= 1.05F;
           if (ai_ready_) RCLCPP_INFO(get_logger(), "ONNX policy loaded");
         } catch (const cv::Exception& e) {
           RCLCPP_ERROR(get_logger(), "Cannot load ONNX model: %s", e.what());
@@ -324,17 +387,31 @@ class ControllerNode final : public rclcpp::Node {
     }
   }
 
-  double ai_step(double error, double dt) {
-    rcauto::validate_dt(error, dt);
-    if (!ai_ready_) throw std::runtime_error("AI model unavailable");
-    const double rate = have_error_ ? rcauto::clamp((error - prev_error_) / dt / 3, -1, 1) : 0;
-    prev_error_ = error; have_error_ = true;
-    float input[] = {static_cast<float>(error), static_cast<float>(rate)};
-    ai_net_.setInput(cv::Mat(1, 2, CV_32F, input).clone());
-    cv::Mat out = ai_net_.forward();
-    if (out.empty() || !std::isfinite(out.at<float>(0)))
-      throw std::runtime_error("AI returned invalid steering");
-    return rcauto::clamp(ai_gain_ * static_cast<double>(out.at<float>(0)), -0.85, 0.85);
+  std::pair<double, double> ai_step(double near_error, double far_error,
+                                    double curvature, double visual_risk, double dt) {
+    rcauto::validate_dt(near_error, dt);
+    if (!ai_ready_) throw std::runtime_error("Dual-output AI model unavailable");
+    const double error = rcauto::clamp(0.30 * near_error + 0.70 * far_error, -1, 1);
+    const double rate = have_error_
+        ? rcauto::clamp((error - prev_error_) / dt / 3.0, -1, 1) : 0;
+    prev_error_ = error;
+    have_error_ = true;
+    float input[] = {static_cast<float>(near_error),
+                           static_cast<float>(far_error),
+                           static_cast<float>(curvature),
+                           static_cast<float>(rate),
+                           static_cast<float>(visual_risk)};
+    ai_net_.setInput(cv::Mat(1, 5, CV_32F, input).clone());
+    const cv::Mat out = ai_net_.forward();
+    if (out.rows != 1 || out.cols != 2 ||
+        !std::isfinite(out.at<float>(0, 0)) ||
+        !std::isfinite(out.at<float>(0, 1)))
+      throw std::runtime_error("AI must return finite steering and throttle");
+    const double steering = rcauto::clamp(
+        ai_gain_ * static_cast<double>(out.at<float>(0, 0)), -1, 1);
+    const double throttle = rcauto::clamp(
+        static_cast<double>(out.at<float>(0, 1)), 0.25, 1.0);
+    return {steering, throttle};
   }
 
   void tick() {
@@ -359,34 +436,88 @@ class ControllerNode final : public rclcpp::Node {
     if (range_stale) observation_.hazard_age = std::numeric_limits<double>::infinity();
     auto [state, speed] = fsm_.update(observation_,
       std::chrono::duration<double>(now.time_since_epoch()).count(), armed_, limits_);
+    const bool have_preview = age(stamp_preview_) < limits_.stale_s;
+    const double near_error = have_preview ? near_error_ : observation_.error;
+    const double far_error = have_preview ? far_error_ : observation_.error;
+    const double curvature = have_preview ? curvature_ : 0.0;
+    const double visibility = have_preview ? preview_visibility_ : 0.0;
+    const double risk = rcauto::camera_risk(
+        near_error, far_error, curvature, observation_.confidence, visibility);
+    // Near preview maintains lateral position; far preview anticipates
+    // the upcoming bend. Far-only control drifts toward the road boundary.
+    const double fused_error = rcauto::clamp(
+        0.62 * near_error + 0.38 * far_error, -1, 1);
     double steering = 0.0;
+    double throttle_factor = 0.0;
     if (speed > 0) {
       try {
-        if (mode_ == "pid") steering = pid_.calculate(observation_.error, dt);
-        else if (mode_ == "fuzzy") steering = fuzzy_.calculate(observation_.error, dt);
-        else if (mode_ == "ai") steering = ai_step(observation_.error, dt);
-        else throw std::runtime_error("invalid mode");
+        if (mode_ == "pid") {
+          steering = pid_.calculate(fused_error, dt);
+          throttle_factor = speed_pid_.calculate(risk, dt);
+        } else if (mode_ == "fuzzy") {
+          steering = fuzzy_.calculate(fused_error, dt);
+          throttle_factor = fuzzy_throttle_.calculate(risk, dt);
+        } else if (mode_ == "ai") {
+          const auto command = ai_step(near_error, far_error, curvature, risk, dt);
+          steering = command.first;
+          throttle_factor = command.second;
+        } else {
+          throw std::runtime_error("Invalid controller mode");
+        }
       } catch (const std::exception& e) {
-        RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 1000, "Controller error: %s", e.what());
-        armed_ = false; speed = 0; steering = 0; state = rcauto::State::SensorStop;
+        RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 1000,
+                              "Dual-output controller failure: %s", e.what());
+        armed_ = false;
+        speed = steering = throttle_factor = 0;
+        state = rcauto::State::SensorStop;
       }
     }
+    double target_speed = 0.0;
     if (speed > 0.0) {
-      // Speed adapts to line error from the FRONT CAMERA ONLY.
-      // No odometry or simulator map is used for throttle decisions.
-      const double curve = std::clamp(
-          (std::abs(observation_.error) - 0.12) / 0.53, 0.0, 1.0);
-      speed *= 1.0 - curve * (1.0 - corner_speed_scale_);
+      // The operator-selected ceiling is never overridden by a controller.
+      // A shared camera-based envelope limits speed before sharp turns.
+      const double camera_envelope = std::clamp(
+          1.0 - 0.65 * std::max(0.0, risk - 0.12) / 0.88, 0.32, 1.0);
+      throttle_factor = std::min(throttle_factor, camera_envelope);
+      if (visibility < 0.12) throttle_factor = std::min(throttle_factor, 0.73);
+      if (observation_.confidence < 0.65)
+        throttle_factor = std::min(throttle_factor, 0.50);
+      throttle_factor = std::clamp(throttle_factor, corner_speed_scale_ * 0.65, 1.0);
+      target_speed = std::min(speed, max_speed_) * throttle_factor;
+      // Tiny visual bends should not generate oscillating servo commands.
+      if (std::abs(fused_error) < steer_deadband_ &&
+          std::abs(curvature) < steer_deadband_ * 1.7)
+        steering = 0.0;
+      steering = std::clamp(steering,
+          last_steering_norm_ - steer_slew_ * dt / max_steer_,
+          last_steering_norm_ + steer_slew_ * dt / max_steer_);
+      last_steering_norm_ = steering;
+      commanded_speed_ += std::clamp(target_speed - commanded_speed_,
+                                     -deceleration_ * dt, acceleration_ * dt);
+    } else {
+      commanded_speed_ = 0;
+      last_steering_norm_ = 0;
+      speed_pid_.reset();
+      fuzzy_throttle_.reset();
+      have_error_ = false;
     }
     ackermann_msgs::msg::AckermannDriveStamped drive;
     drive.header.stamp = get_clock()->now();
     drive.header.frame_id = "base_link";
     drive.drive.steering_angle = static_cast<float>(steering * max_steer_);
-    drive.drive.speed = static_cast<float>(std::min(speed, max_speed_));
+    drive.drive.speed = static_cast<float>(commanded_speed_);
     pub_drive_->publish(drive);
     std_msgs::msg::Float32 steering_msg;
     steering_msg.data = static_cast<float>(steering);
     pub_steer_->publish(steering_msg);
+    const auto emit = [](const auto& publisher, double value) {
+      std_msgs::msg::Float32 m;
+      m.data = static_cast<float>(value);
+      publisher->publish(m);
+    };
+    emit(pub_speed_factor_, throttle_factor);
+    emit(pub_risk_, risk);
+    emit(pub_preview_speed_, commanded_speed_);
     std_msgs::msg::String status;
     std::ostringstream s;
     s << rcauto::state_name(state) << " | mode=" << mode_ << " | armed=" << armed_
@@ -401,7 +532,9 @@ class ControllerNode final : public rclcpp::Node {
   }
 
   rcauto::Pid pid_;
+  rcauto::VisualSpeedPid speed_pid_;
   rcauto::Fuzzy fuzzy_;
+  rcauto::FuzzyThrottle fuzzy_throttle_;
   rcauto::StateMachine fsm_;
   rcauto::Observation observation_;
   rcauto::Limits limits_;
@@ -415,19 +548,24 @@ class ControllerNode final : public rclcpp::Node {
     range_min_m_{std::numeric_limits<double>::quiet_NaN()},
     range_max_m_{std::numeric_limits<double>::quiet_NaN()},
     max_steer_{0.35}, max_speed_{0.18}, stop_range_m_{0.5}, range_stale_s_{0.4},
-    ai_gain_{1.0}, corner_speed_scale_{1.0};
+    ai_gain_{1.0}, corner_speed_scale_{1.0}, commanded_speed_{0.0},
+    last_steering_norm_{0.0}, steer_deadband_{0.035}, steer_slew_{2.8},
+    acceleration_{0.48}, deceleration_{1.1},
+    near_error_{0.0}, far_error_{0.0}, curvature_{0.0}, preview_visibility_{0.0};
   std::string mode_{"pid"}, last_model_;
   Steady::time_point stamp_lane_{}, stamp_conf_{}, stamp_cross_{}, stamp_hazard_{},
-                     stamp_signal_{}, stamp_range_{}, last_tick_{};
+                     stamp_signal_{}, stamp_range_{}, stamp_preview_{}, last_tick_{};
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr cb_handle_;
-  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_lane_, sub_conf_;
+  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr
+      sub_lane_, sub_conf_, sub_near_, sub_far_, sub_curvature_, sub_preview_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_cross_, sub_hazard_,
     sub_enable_, sub_estop_, sub_reset_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_light_, sub_mode_;
   rclcpp::Subscription<sensor_msgs::msg::Range>::SharedPtr sub_range_;
   rclcpp::Publisher<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr pub_drive_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_state_;
-  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr pub_steer_;
+  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr
+      pub_steer_, pub_speed_factor_, pub_risk_, pub_preview_speed_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 

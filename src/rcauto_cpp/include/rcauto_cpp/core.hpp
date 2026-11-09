@@ -120,6 +120,83 @@ class Fuzzy {
   bool has_previous_{false};
 };
 
+
+// Dual-output speed controller. This PID regulates perceived visual corner
+// risk, NOT actual vehicle speed (which requires a wheel/speed sensor).
+// Risk is derived exclusively from the forward camera.
+class VisualSpeedPid {
+ public:
+  void set_gains(Gains gains) { pid_.set_gains(gains); }
+  void reset() { pid_.reset(); }
+  double calculate(double visual_risk, double dt) {
+    validate_dt(visual_risk, dt);
+    const double error = 0.22 - clamp(visual_risk, 0.0, 1.0);
+    return clamp(0.90 + pid_.calculate(error, dt), 0.25, 1.0);
+  }
+ private:
+  Pid pid_{Gains{1.9, 0.0, 0.06, 1.0}};
+};
+
+// Mamdani-style triangular fuzzification with singleton defuzzification.
+// Separate fuzzy rule surface for throttle, alongside the steering fuzzy.
+class FuzzyThrottle {
+ public:
+  void set_aggressiveness(double value) {
+    if (!std::isfinite(value) || value < 0.5 || value > 2.0)
+      throw std::invalid_argument("fuzzy throttle aggression out of range");
+    aggression_ = value;
+  }
+  void reset() { previous_ = 0.0; have_previous_ = false; }
+  double calculate(double visual_risk, double dt) {
+    validate_dt(visual_risk, dt);
+    const double risk = clamp(visual_risk, 0.0, 1.0);
+    const double trend = have_previous_
+        ? clamp((risk - previous_) / dt / 3.0, -1.0, 1.0) : 0.0;
+    previous_ = risk;
+    have_previous_ = true;
+    const auto risk_weights = memberships(risk * 2.0 - 1.0);
+    const auto trend_weights = memberships(trend);
+    double sum = 0.0, mass = 0.0;
+    for (std::size_t i = 0; i < 5; ++i) {
+      for (std::size_t j = 0; j < 5; ++j) {
+        const double weight = risk_weights[i] * trend_weights[j];
+        // Brake more for severe predicted curves and approaching curvature.
+        const double slow = (0.14 * static_cast<double>(i) +
+            0.045 * static_cast<double>(j > 2 ? j - 2 : 0)) * aggression_;
+        sum += weight * clamp(1.0 - slow, 0.25, 1.0);
+        mass += weight;
+      }
+    }
+    if (mass <= 1e-8) throw std::runtime_error("empty throttle fuzzy memberships");
+    return clamp(sum / mass, 0.25, 1.0);
+  }
+ private:
+  static std::array<double, 5> memberships(double value) {
+    const double x = clamp(value, -1.0, 1.0);
+    constexpr std::array<double, 5> centers{-1.0,-0.5,0.0,0.5,1.0};
+    std::array<double, 5> weights{};
+    for (std::size_t i = 0; i < centers.size(); ++i)
+      weights[i] = std::max(0.0, 1.0 - std::abs(x - centers[i]) / 0.5);
+    return weights;
+  }
+  double aggression_{1.0}, previous_{0.0};
+  bool have_previous_{false};
+};
+
+// Camera risk for coordinated steering and throttle. No map/pose inputs.
+inline double camera_risk(double near_error, double far_error,
+                          double signed_curvature, double confidence,
+                          double preview_visibility) {
+  const double risk = std::max({
+      1.25 * std::abs(clamp(near_error, -1.0, 1.0)),
+      0.90 * std::abs(clamp(far_error, -1.0, 1.0)),
+      0.78 * std::abs(clamp(signed_curvature, -1.0, 1.0)),
+      0.48 * (1.0 - clamp(confidence, 0.0, 1.0)),
+      0.24 * (1.0 - clamp(preview_visibility, 0.0, 1.0))
+  });
+  return clamp(risk, 0.0, 1.0);
+}
+
 enum class State {
   Disarmed, Follow, WaitSignal, Crossing, ObstacleStop, SensorStop, Estop
 };

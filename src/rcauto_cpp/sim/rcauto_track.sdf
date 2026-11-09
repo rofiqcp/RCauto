@@ -14,7 +14,7 @@
 <pose>0 -2.919027 0 0 0 3.134082</pose></include>
 <model name="arena_overview"><static>true</static>
 <link name="camera_mount"><pose>0 0 8 0 1.570796326795 1.570796326795</pose>
-<sensor name="top_down" type="camera"><always_on>true</always_on><update_rate>2</update_rate>
+<sensor name="top_down" type="camera"><always_on>true</always_on><update_rate>1</update_rate>
 <topic>/rcauto/arena/overview</topic>
 <camera><horizontal_fov>0.8</horizontal_fov><image><width>480</width><height>600</height><format>R8G8B8</format></image>
 <clip><near>0.1</near><far>25</far></clip></camera>

@@ -98,6 +98,10 @@ class VisionNode final : public rclcpp::Node {
     pub_error_ = create_publisher<std_msgs::msg::Float32>("/rcauto/lane_error", 10);
     pub_raw_error_ = create_publisher<std_msgs::msg::Float32>("/rcauto/vision/lane_error_raw",10);
     pub_conf_ = create_publisher<std_msgs::msg::Float32>("/rcauto/lane_confidence", 10);
+    pub_near_ = create_publisher<std_msgs::msg::Float32>("/rcauto/vision/near_error",10);
+    pub_far_ = create_publisher<std_msgs::msg::Float32>("/rcauto/vision/far_error",10);
+    pub_curvature_ = create_publisher<std_msgs::msg::Float32>("/rcauto/vision/curvature",10);
+    pub_preview_ = create_publisher<std_msgs::msg::Float32>("/rcauto/vision/preview_visibility",10);
     pub_cross_ = create_publisher<std_msgs::msg::Bool>("/rcauto/intersection", 10);
     pub_debug_ = create_publisher<sensor_msgs::msg::Image>("/rcauto/camera/annotated", 2);
     if (get_parameter("vision.source").as_string() == "usb") {
@@ -141,7 +145,7 @@ class VisionNode final : public rclcpp::Node {
     if (frame.empty() || frame.cols < 30 || frame.rows < 30) return;
     if (pending_) { pending_ = false; refresh(); }
     const int w = frame.cols, h = frame.rows;
-    const int y0 = static_cast<int>(h * (style_ == "road" ? 0.51 : 0.50));
+    const int y0 = static_cast<int>(h * (style_ == "road" ? 0.45 : 0.31));
     cv::Mat hsv; cv::cvtColor(frame(cv::Rect(0, y0, w, h-y0)), hsv, cv::COLOR_BGR2HSV);
     cv::Mat mask;
     if (style_ == "road") {
@@ -159,6 +163,7 @@ class VisionNode final : public rclcpp::Node {
                   cv::Scalar(hmax_,255,255), mask);
     }
     double error = 0, confidence = 0;
+    double near_error = 0, far_error = 0, curvature = 0, preview_visibility = 0;
     cv::Mat debug = frame.clone();
     const cv::Mat mid = mask(cv::Range(static_cast<int>(mask.rows*.15),
                                       static_cast<int>(mask.rows*.55)), cv::Range::all());
@@ -174,20 +179,65 @@ class VisionNode final : public rclcpp::Node {
                        cv::getStructuringElement(cv::MORPH_RECT, cv::Size(2, 2)));
       std::vector<std::vector<cv::Point>> contours;
       cv::findContours(clean, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+      // Vision-only preview: find the road midpoint at multiple image depths
+      // by sampling both solid WHITE road boundaries. No pose or map.
+      std::vector<cv::Point2f> road_centers;
+      const int row_step = std::max(8, h / 28);
+      for (int y = cvRound(h * 0.89); y >= cvRound(h * 0.36); y -= row_step) {
+        const int ry = y - y0;
+        if (ry < 0 || ry >= clean.rows) continue;
+        const uchar* row = clean.ptr<uchar>(ry);
+        std::vector<double> run_centers;
+        int begin = -1;
+        for (int x = 0; x <= w; ++x) {
+          const bool white = x < w && row[x] != 0;
+          if (white && begin < 0) begin = x;
+          if (!white && begin >= 0) {
+            if (x - begin >= 2) run_centers.push_back((begin + x - 1) * 0.5);
+            begin = -1;
+          }
+        }
+        if (run_centers.size() < 2) continue;
+        const double span = run_centers.back() - run_centers.front();
+        const double level = static_cast<double>(y) / h;
+        const double minimum_span = w * (0.13 + 0.27 *
+            std::clamp((level - 0.35) / 0.56, 0.0, 1.0));
+        if (span < minimum_span) continue;
+        const double x_center = (run_centers.front() + run_centers.back()) * 0.5;
+        if (!road_centers.empty() &&
+            std::abs(x_center - road_centers.back().x) > w * 0.25) continue;
+        road_centers.emplace_back(static_cast<float>(x_center),
+                                  static_cast<float>(y));
+      }
       struct Marker { cv::Point2f center; double area; cv::Rect rect; };
       std::vector<Marker> markers;
       markers.reserve(contours.size());
-      const double max_area = w * h * 0.012;
+      const double max_area = w * h * 0.005;
       for (const auto& contour : contours) {
         const cv::Rect box = cv::boundingRect(contour);
         const double area = cv::contourArea(contour);
-        if (area < 8 || area > max_area || box.width > w * 0.20 ||
-            box.height > h * 0.30 || box.y + y0 < h * 0.57) continue;
+        if (area < 8 || area > max_area || box.width > w * 0.12 ||
+            box.height > h * 0.25 || box.y + y0 < h * 0.34) continue;
         const auto moments = cv::moments(contour);
         if (moments.m00 <= 0.0) continue;
         const cv::Point2f center(
             static_cast<float>(moments.m10 / moments.m00),
             static_cast<float>(moments.m01 / moments.m00 + y0));
+        // Reject apparent "dashes" sitting on the outer road borders.
+        // Both borders are extracted from this SAME camera scanline.
+        const int scan_y = std::clamp(cvRound(center.y) - y0, 0, mask.rows-1);
+        std::vector<cv::Point> white_points;
+        cv::findNonZero(mask.row(scan_y), white_points);
+        if (white_points.size() >= 4) {
+          const int leftmost = white_points.front().x;
+          const int rightmost = white_points.back().x;
+          const double lane_span = rightmost - leftmost;
+          if (lane_span > w * 0.24) {
+            const double margin = std::max(9.0, lane_span * 0.19);
+            if (center.x < leftmost + margin ||
+                center.x > rightmost - margin) continue;
+          }
+        }
         markers.push_back({center, area, box});
       }
       // When central dashes are absent, infer a visual correction from
@@ -236,8 +286,8 @@ class VisionNode final : public rclcpp::Node {
       for (const auto& marker : markers) {
         if (tracked.empty()) {
           if (marker.center.y < h * 0.60 ||
-              std::abs(marker.center.x - last_mark_x_) > w * 0.37) continue;
-        } else if (std::abs(marker.center.x - previous_x) > w * 0.28) {
+              std::abs(marker.center.x - last_mark_x_) > w * 0.19) continue;
+        } else if (std::abs(marker.center.x - previous_x) > w * 0.21) {
           continue;
         }
         tracked.push_back(marker.center);
@@ -247,6 +297,12 @@ class VisionNode final : public rclcpp::Node {
       if (!tracked.empty()) {
         const float near_x = tracked.front().x;
         const float far_x = tracked.size() >= 2 ? tracked.back().x : near_x;
+        near_error = std::clamp(-(near_x - w * 0.5) / (w * 0.5), -1.0, 1.0);
+        far_error = std::clamp(-(far_x - w * 0.5) / (w * 0.5), -1.0, 1.0);
+        curvature = std::clamp((near_x - far_x) / (w * 0.67), -1.0, 1.0);
+        preview_visibility = tracked.size() >= 2
+            ? std::clamp((tracked.front().y - tracked.back().y) / (h * 0.48), 0.0, 1.0)
+            : 0.0;
         double target_x =
             near_x * (1.0 - lookahead_weight_) + far_x * lookahead_weight_;
         if (have_edge_target && std::abs(target_x - edge_target) < w * 0.24) {
@@ -272,10 +328,66 @@ class VisionNode final : public rclcpp::Node {
                                  static_cast<double>(last_mark_x_) + w * 0.26);
         last_mark_x_ = static_cast<float>(edge_target);
         error = std::clamp((edge_target - w * 0.5) / (w * 0.5), -1.0, 1.0);
+        near_error = far_error = -error;
+        curvature = 0;
+        preview_visibility = 0;
         confidence = 0.58;
         cv::line(debug, cv::Point(cvRound(edge_target), h - 1),
                  cv::Point(cvRound(edge_target), h * 3 / 4),
                  cv::Scalar(255, 180, 0), 2);
+      }
+      if (road_centers.size() >= 5) {
+        // Solid road boundaries are only a secondary visual measurement.
+        // Two bright lines in a row can be the center dash plus ONE border,
+        // so never let such a center override a credible tracked guide line.
+        // Aggregate three rows at both depths to avoid pixel-level servo jitter.
+        const size_t samples = std::min<size_t>(3, road_centers.size());
+        double near_x = 0.0, far_x = 0.0;
+        for (size_t index = 0; index < samples; ++index) {
+          near_x += road_centers[index].x;
+          far_x += road_centers[road_centers.size() - 1 - index].x;
+        }
+        near_x /= static_cast<double>(samples);
+        far_x /= static_cast<double>(samples);
+        const double visual_target =
+            near_x * (1.0 - lookahead_weight_) + far_x * lookahead_weight_;
+        const bool agrees_with_markers = tracked.size() >= 2 &&
+            std::abs(near_x - tracked.front().x) < w * 0.17 &&
+            std::abs(far_x - tracked.back().x) < w * 0.22;
+        const bool visually_continuous = tracked.empty() &&
+            std::abs(visual_target - last_mark_x_) < w * 0.20;
+        if (agrees_with_markers || visually_continuous) {
+          const double blend = agrees_with_markers ? 0.25 : 1.0;
+          const double previous_pixel_target = w * 0.5 + error * w * 0.5;
+          const double accepted_target = std::clamp(
+              (1.0 - blend) * previous_pixel_target + blend * visual_target,
+              0.0, static_cast<double>(w));
+          error = std::clamp((accepted_target - w * 0.5) / (w * 0.5), -1.0, 1.0);
+          near_error = std::clamp(
+              near_error * (1.0 - blend) -
+              blend * (near_x - w * 0.5) / (w * 0.5), -1.0, 1.0);
+          far_error = std::clamp(
+              far_error * (1.0 - blend) -
+              blend * (far_x - w * 0.5) / (w * 0.5), -1.0, 1.0);
+          curvature = std::clamp(
+              curvature * (1.0 - blend) +
+              blend * (near_x - far_x) / (w * 0.67), -1.0, 1.0);
+          preview_visibility = std::max(preview_visibility, std::clamp(
+              (road_centers.front().y - road_centers.back().y) / (h * 0.53),
+              0.0, 1.0));
+          confidence = std::max(confidence, visually_continuous ? 0.70 : 0.87);
+          last_mark_x_ = static_cast<float>(accepted_target);
+          for (size_t index = 0; index < road_centers.size(); ++index) {
+            const auto& point = road_centers[index];
+            cv::circle(debug, point, 3, cv::Scalar(235, 230, 40), -1);
+            if (index > 0)
+              cv::line(debug, road_centers[index - 1], point,
+                       cv::Scalar(220, 200, 50), 1);
+          }
+          cv::line(debug, cv::Point(cvRound(accepted_target), h - 1),
+                   cv::Point(cvRound(accepted_target), cvRound(h * .65)),
+                   cv::Scalar(250, 220, 70), 2);
+        }
       }
     } else {
       cv::Mat edges;
@@ -308,6 +420,8 @@ class VisionNode final : public rclcpp::Node {
     // Image +X points right, whereas ROS Ackermann +steering turns left.
     // Convert pixel displacement into vehicle-left-positive steering error.
     error = -error;
+    // Near/far/curve telemetry uses vehicle-left-positive coordinates too.
+    // Far preview is measured ONLY from visible perspective-projected image markers.
     const double raw_error = error;
     if (confidence > 0.0) {
       filtered_error_ = have_filtered_error_
@@ -320,14 +434,28 @@ class VisionNode final : public rclcpp::Node {
     }
     std_msgs::msg::Float32 raw;raw.data=static_cast<float>(raw_error);
     pub_raw_error_->publish(raw);
+    const auto send = [](const auto& publisher, double value) {
+      std_msgs::msg::Float32 m;
+      m.data = static_cast<float>(value);
+      publisher->publish(m);
+    };
+    send(pub_near_, near_error);
+    send(pub_far_, far_error);
+    send(pub_curvature_, curvature);
+    send(pub_preview_, preview_visibility);
     error = filtered_error_;
     std_msgs::msg::Float32 err;err.data=static_cast<float>(error);pub_error_->publish(err);
     std_msgs::msg::Float32 conf;conf.data=static_cast<float>(confidence);pub_conf_->publish(conf);
     std_msgs::msg::Bool cross;cross.data=intersection;pub_cross_->publish(cross);
     if (show_debug_ && pub_debug_->get_subscription_count()>0) {
       cv::line(debug,cv::Point(w/2,y0),cv::Point(w/2,h),cv::Scalar(200,200,200),1);
+      cv::line(debug,cv::Point(0,cvRound(h*0.34)),cv::Point(w,cvRound(h*0.34)),
+               cv::Scalar(60,130,200),1);
       cv::putText(debug,"lane="+std::to_string(error)+" conf="+std::to_string(confidence),
                   cv::Point(8,24),cv::FONT_HERSHEY_SIMPLEX,.5,cv::Scalar(0,255,0),1);
+      cv::putText(debug,"near="+std::to_string(near_error)+" far="+std::to_string(far_error)+
+                  " curve="+std::to_string(curvature),
+                  cv::Point(8,46),cv::FONT_HERSHEY_SIMPLEX,.46,cv::Scalar(20,210,245),1);
       std_msgs::msg::Header header;header.stamp=get_clock()->now();header.frame_id="camera_link";
       pub_debug_->publish(*cv_bridge::CvImage(header,"bgr8",debug).toImageMsg());
     }
@@ -343,7 +471,8 @@ class VisionNode final : public rclcpp::Node {
   double edge_half_width_px_{210.0};
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr callback_handle_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr sub_image_;
-  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr pub_error_,pub_raw_error_,pub_conf_;
+  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr pub_error_,pub_raw_error_,pub_conf_,
+      pub_near_,pub_far_,pub_curvature_,pub_preview_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_cross_;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr pub_debug_;
   rclcpp::TimerBase::SharedPtr timer_;

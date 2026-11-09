@@ -4,20 +4,30 @@ rcauto_cpp_controller:
   ros__parameters:
     controller:
       pid:
-        kp: 1.75
+        kp: 1.70
         ki: 0.0
-        kd: 0.04
+        kd: 0.025
         max_output: 1.0
       fuzzy:
-        error_weight: 1.85
-        rate_weight: 0.12
+        error_weight: 1.55
+        rate_weight: 0.08
         max_output: 1.0
+        speed_aggressiveness: 1.0
+      speed_pid:
+        kp: 1.4
+        ki: 0.0
+        kd: 0.06
       ai:
-        output_gain: 1.95
+        output_gain: 1.5
     drive:
       max_steering_rad: 0.70
-      follow_speed_mps: 0.16
-      corner_speed_scale: 0.70
+      max_speed_mps: 0.32
+      follow_speed_mps: 0.28
+      corner_speed_scale: 0.60
+      steering_deadband_norm: 0.045
+      steering_slew_rad_s: 2.1
+      accel_mps2: 0.45
+      decel_mps2: 1.1
     safety:
       stale_s: 1.0
 
@@ -25,4 +35,4 @@ rcauto_cpp_vision:
   ros__parameters:
     vision:
       lookahead_weight: 0.85
-      error_smoothing_alpha: 0.42
+      error_smoothing_alpha: 0.32

@@ -1,82 +1,107 @@
-"""Train an ONNX neural steering baseline on SYNTHETIC PD targets.
+"""Train a synthetic two-output ONNX preview controller for simulation.
 
-Research baseline only. Does not represent a learned policy from real vehicle footage.
-Real-world deployment requires actual track data, validation and safety case.
+Inputs (camera-only): near lateral error, far lateral error, visual curvature,
+error derivative, and camera risk. Outputs: normalized steering and speed factor [0.25, 1].
+This is a synthetic imitation baseline, not a validated on-road AI policy.
 """
 
-from pathlib import Path
 import argparse
+from pathlib import Path
+
 import numpy as np
 
 
-def train(seed=23, iterations=1800):
+def synthetic_targets(features):
+    near, far, curvature, rate = (features[:, index] for index in range(4))
+    steering = np.clip(0.70 * near + 0.40 * far +
+                       0.10 * curvature + 0.030 * rate, -0.90, 0.90)
+    risk = features[:, 4]
+    throttle = np.clip(1.0 - 0.75 * risk - 0.09 * np.abs(rate),
+                       0.25, 1.0)
+    return np.stack((steering, throttle), axis=-1).astype(np.float32)
+
+
+def train(seed=23, iterations=2100):
     rng = np.random.default_rng(seed)
-    x = rng.uniform(-1, 1, size=(5000, 2)).astype(np.float32)
-    y = np.clip(0.68 * x[:, :1] + 0.22 * x[:, 1:], -0.85, 0.85)
-    w1 = rng.normal(0, 0.5, (2, 16)).astype(np.float32)
-    b1 = np.zeros(16, dtype=np.float32)
-    w2 = rng.normal(0, 0.08, (16, 1)).astype(np.float32)
-    b2 = np.zeros(1, dtype=np.float32)
-    lr = 0.03
+    data = rng.uniform(-1, 1, (10000, 5)).astype(np.float32)
+    data[:, 1] = np.clip(data[:, 0] + rng.normal(0, 0.34, len(data)), -1, 1)
+    data[:, 4] = np.clip(np.maximum.reduce((1.25 * np.abs(data[:, 0]),
+                                    0.90 * np.abs(data[:, 1]),
+                                    0.78 * np.abs(data[:, 2]),
+                                    0.24 * np.ones(len(data), dtype=np.float32))), 0, 1)
+    target = synthetic_targets(data)
+    w1 = rng.normal(0, 0.45, (5, 32)).astype(np.float32)
+    b1 = np.zeros(32, dtype=np.float32)
+    w2 = rng.normal(0, 0.08, (32, 2)).astype(np.float32)
+    b2 = np.zeros(2, dtype=np.float32)
     for _ in range(iterations):
-        ix = rng.integers(0, len(x), 256)
-        xb, yb = x[ix], y[ix]
-        hidden = np.tanh(xb @ w1 + b1)
-        pred = hidden @ w2 + b2
-        grad = 2 * (pred - yb) / len(xb)
-        dw2 = hidden.T @ grad
-        db2 = grad.sum(axis=0)
-        dz = (grad @ w2.T) * (1 - hidden ** 2)
-        dw1 = xb.T @ dz
-        db1 = dz.sum(axis=0)
-        w2 -= lr * dw2
-        b2 -= lr * db2
-        w1 -= lr * dw1
-        b1 -= lr * db1
-    err = float(np.mean(np.abs(np.tanh(x @ w1 + b1) @ w2 + b2 - y)))
-    return (w1, b1, w2, b2), err
+        index = rng.integers(0, len(data), 256)
+        sample, truth = data[index], target[index]
+        hidden = np.tanh(sample @ w1 + b1)
+        prediction = hidden @ w2 + b2
+        gradient = 2 * (prediction - truth) / len(sample)
+        delta_w2 = hidden.T @ gradient
+        delta_b2 = gradient.sum(axis=0)
+        gradient_hidden = (gradient @ w2.T) * (1 - hidden**2)
+        delta_w1 = sample.T @ gradient_hidden
+        delta_b1 = gradient_hidden.sum(axis=0)
+        learning_rate = 0.024
+        w2 -= learning_rate * delta_w2
+        b2 -= learning_rate * delta_b2
+        w1 -= learning_rate * delta_w1
+        b1 -= learning_rate * delta_b1
+    predicted = np.tanh(data @ w1 + b1) @ w2 + b2
+    mae = np.mean(np.abs(predicted - target), axis=0)
+    return (w1, b1, w2, b2), mae
 
 
-def save_onnx(output, weights):
+def save_onnx(path, weights):
     import onnx
+    import onnxruntime as ort
     from onnx import TensorProto, helper, numpy_helper
+
     w1, b1, w2, b2 = weights
-    # Explicit MatMul/Add operators avoid Gemm parsing bugs in OpenCV 4.5
-    # (ROS Humble cv_bridge ABI) while remaining compatible with ONNX Runtime.
     nodes = [
         helper.make_node("MatMul", ["input", "w1"], ["mm1"]),
         helper.make_node("Add", ["mm1", "b1"], ["h0"]),
         helper.make_node("Tanh", ["h0"], ["h1"]),
         helper.make_node("MatMul", ["h1", "w2"], ["mm2"]),
-        helper.make_node("Add", ["mm2", "b2"], ["steering"]),
+        helper.make_node("Add", ["mm2", "b2"], ["control"]),
     ]
     graph = helper.make_graph(
-        nodes, "synthetic_steering_baseline",
-        [helper.make_tensor_value_info("input", TensorProto.FLOAT, [None, 2])],
-        [helper.make_tensor_value_info("steering", TensorProto.FLOAT, [None, 1])],
-        initializer=[
-            numpy_helper.from_array(w1, "w1"),
-            numpy_helper.from_array(b1, "b1"),
-            numpy_helper.from_array(w2, "w2"),
-            numpy_helper.from_array(b2, "b2"),
-        ],
+        nodes, "synthetic_visual_dual_output",
+        [helper.make_tensor_value_info("input", TensorProto.FLOAT, [None, 5])],
+        [helper.make_tensor_value_info("control", TensorProto.FLOAT, [None, 2])],
+        initializer=[numpy_helper.from_array(array, name)
+                     for array, name in ((w1, "w1"), (b1, "b1"),
+                                         (w2, "w2"), (b2, "b2"))],
     )
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)],
-                              producer_name="rcauto-synthetic-pd-distillation")
+                              producer_name="rcauto-visual-dual-synthetic")
     model.ir_version = 8
     onnx.checker.check_model(model)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    onnx.save(model, str(output))
-    import onnxruntime as ort
-    session = ort.InferenceSession(str(output), providers=["CPUExecutionProvider"])
-    actual = session.run(None, {"input": np.array([[0.3, 0.0]], dtype=np.float32)})[0]
-    assert 0 < float(actual[0, 0]) < 0.85, "Invalid steering prediction"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    onnx.save(model, path)
+    session = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+    sample = np.array([[0,0,0,0,.24], [.05,.80,.70,.25,.744],
+                       [-.4,-.7,-.8,0,.696]], dtype=np.float32)
+    output = session.run(None, {"input": sample})[0]
+    if (output.shape != (3, 2) or not np.isfinite(output).all() or
+            not (0.25 <= output[:, 1]).all() or
+            not (output[:, 1] <= 1.01).all() or
+            not output[0, 1] > output[1, 1] or
+            not output[0, 1] > .75):
+        raise RuntimeError(f"Unsafe synthesized ONNX output: {output}")
+    return output
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args()
-    weights, mae = train()
-    save_onnx(args.output, weights)
-    print(f"Neural baseline trained on synthetic data: MAE={mae:.4f}, model={args.output}")
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--iterations", type=int, default=2100)
+    arguments = parser.parse_args()
+    weights, mae = train(iterations=arguments.iterations)
+    checks = save_onnx(arguments.output, weights)
+    print("Synthetic dual-output training MAE steering/speed:", mae)
+    print("Straight/curve example outputs:", checks)
+    print("Model:", arguments.output)

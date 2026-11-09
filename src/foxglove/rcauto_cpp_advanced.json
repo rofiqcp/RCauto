@@ -203,6 +203,81 @@
       "topicPath": "/rcauto/actuator/esc_pwm_ms",
       "defaultExpanded": true,
       "foxglovePanelTitle": "ESC PWM (ms)"
+    },
+    "Plot!preview": {
+      "paths": [
+        {
+          "value": "/rcauto/vision/near_error.data",
+          "enabled": true,
+          "label": "Near lane",
+          "timestampMethod": "receiveTime"
+        },
+        {
+          "value": "/rcauto/vision/far_error.data",
+          "enabled": true,
+          "label": "Far preview",
+          "timestampMethod": "receiveTime"
+        },
+        {
+          "value": "/rcauto/vision/curvature.data",
+          "enabled": true,
+          "label": "Ahead curve",
+          "timestampMethod": "receiveTime"
+        },
+        {
+          "value": "/rcauto/vision/preview_visibility.data",
+          "enabled": true,
+          "label": "Visibility",
+          "timestampMethod": "receiveTime"
+        },
+        {
+          "value": "/rcauto/tuning/visual_risk.data",
+          "enabled": true,
+          "label": "Visual risk",
+          "timestampMethod": "receiveTime"
+        }
+      ],
+      "followingViewWidth": 30,
+      "timeRange": "latest",
+      "timeWindowMode": "fixed",
+      "foxglovePanelTitle": "Camera preview: near / far / curvature / risk"
+    },
+    "Plot!speedduo": {
+      "paths": [
+        {
+          "value": "/rcauto/tuning/speed_command_mps.data",
+          "enabled": true,
+          "label": "ESC target m/s",
+          "timestampMethod": "receiveTime"
+        },
+        {
+          "value": "/rcauto/actuator/esc_speed_mps.data",
+          "enabled": true,
+          "label": "Actuator speed m/s",
+          "timestampMethod": "receiveTime"
+        },
+        {
+          "value": "/rcauto/tuning/speed_factor.data",
+          "enabled": true,
+          "label": "Throttle normalized",
+          "timestampMethod": "receiveTime"
+        },
+        {
+          "value": "/rcauto/tuning/steer_norm.data",
+          "enabled": true,
+          "label": "Steering normalized",
+          "timestampMethod": "receiveTime"
+        }
+      ],
+      "followingViewWidth": 30,
+      "timeRange": "latest",
+      "timeWindowMode": "fixed",
+      "foxglovePanelTitle": "Dual-output control: steering + speed"
+    },
+    "RawMessages!preview": {
+      "topicPath": "/rcauto/vision/far_error",
+      "defaultExpanded": true,
+      "foxglovePanelTitle": "Preview error from image"
     }
   },
   "layout": {
@@ -219,13 +294,23 @@
       },
       "second": {
         "direction": "column",
-        "splitPercentage": 50,
-        "first": "Plot!rcacppplot",
-        "second": {
+        "splitPercentage": 57,
+        "first": {
           "direction": "row",
           "splitPercentage": 50,
-          "first": "Plot!rcacpppwm",
-          "second": "Plot!rcacppcommand"
+          "first": "Plot!preview",
+          "second": "Plot!speedduo"
+        },
+        "second": {
+          "direction": "column",
+          "splitPercentage": 50,
+          "first": "Plot!rcacppplot",
+          "second": {
+            "direction": "row",
+            "splitPercentage": 50,
+            "first": "Plot!rcacpppwm",
+            "second": "Plot!rcacppcommand"
+          }
         }
       }
     },
