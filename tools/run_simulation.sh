@@ -42,11 +42,11 @@ if [[ "$BACKEND" == "gazebo" ]]; then
     exec xvfb-run -a -s '-screen 0 1280x720x24' \
       ros2 launch rcauto_cpp rcauto_gazebo.launch.py headless:=true \
       foxglove_enabled:=true controller_mode:="${RCAUTO_MODE:-pid}" \
-      model_path:="$ROOT/src/models/visual_dual_policy.onnx"
+      model_path:="${RCAUTO_AI_MODEL:-$ROOT/src/models/visual_dual_policy.onnx}"
   fi
   exec ros2 launch rcauto_cpp rcauto_gazebo.launch.py headless:=false \
     foxglove_enabled:=true controller_mode:="${RCAUTO_MODE:-pid}" \
-    model_path:="$ROOT/src/models/visual_dual_policy.onnx"
+    model_path:="${RCAUTO_AI_MODEL:-$ROOT/src/models/visual_dual_policy.onnx}"
 elif [[ "$BACKEND" == "f1tenth" ]]; then
   VENV_SITE="$ROOT/.venv/f1tenth/lib/python3.10/site-packages"
   if [[ ! -d "$VENV_SITE" ]]; then
@@ -65,18 +65,18 @@ elif [[ "$BACKEND" == "f1tenth" ]]; then
     exec xvfb-run -a -s '-screen 0 1280x720x24' \
       ros2 launch rcauto_cpp rcauto_f1tenth.launch.py rviz_enabled:=false \
       foxglove_enabled:=true controller_mode:="${RCAUTO_MODE:-pid}" \
-      model_path:="$ROOT/src/models/visual_dual_policy.onnx"
+      model_path:="${RCAUTO_AI_MODEL:-$ROOT/src/models/visual_dual_policy.onnx}"
   fi
   exec ros2 launch rcauto_cpp rcauto_f1tenth.launch.py \
     rviz_enabled:="${RCAUTO_F1TENTH_RVIZ:-true}" foxglove_enabled:=true \
     controller_mode:="${RCAUTO_MODE:-pid}" \
-    model_path:="$ROOT/src/models/visual_dual_policy.onnx"
+    model_path:="${RCAUTO_AI_MODEL:-$ROOT/src/models/visual_dual_policy.onnx}"
 elif [[ "$BACKEND" == "synthetic" ]]; then
   exec ros2 launch rcauto_cpp rcauto_cpp.launch.py simulation:=true \
     hardware_enabled:=false camera_source:=ros lane_style:=tape \
     foxglove_enabled:=true foxglove_port:=8767 \
     controller_mode:="${RCAUTO_MODE:-pid}" \
-    model_path:="$ROOT/src/models/visual_dual_policy.onnx"
+    model_path:="${RCAUTO_AI_MODEL:-$ROOT/src/models/visual_dual_policy.onnx}"
 else
   echo "Unknown simulation backend: $BACKEND (gazebo|f1tenth|synthetic)" >&2
   exit 2

@@ -1,0 +1,18 @@
+# Validated KSTI camera-only Fuzzy profile (iter11, two laps).
+rcauto_cpp_controller:
+  ros__parameters:
+    controller:
+      fuzzy:
+        error_weight: 1.65
+        rate_weight: 0.10
+        speed_aggressiveness: 1.35
+    drive:
+      follow_speed_mps: 0.30
+      corner_speed_scale: 0.58
+      steering_deadband_norm: 0.04
+
+rcauto_cpp_vision:
+  ros__parameters:
+    vision:
+      lookahead_weight: 0.85
+      error_smoothing_alpha: 0.34

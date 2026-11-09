@@ -12,13 +12,31 @@ from launch.actions import (
     DeclareLaunchArgument,
     ExecuteProcess,
     IncludeLaunchDescription,
+    OpaqueFunction,
     SetEnvironmentVariable,
+    SetLaunchConfiguration,
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, EnvironmentVariable, FindExecutable, LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
+
+
+def select_mode_profile(context):
+    """Overlay method-specific tuning without changing physical robot defaults."""
+    mode = LaunchConfiguration("controller_mode").perform(context)
+    if mode not in {"pid", "fuzzy", "ai"}:
+        raise ValueError("controller_mode must be pid, fuzzy or ai")
+    specified = LaunchConfiguration("mode_tuning_config").perform(context)
+    if specified:
+        if not Path(specified).is_file():
+            raise FileNotFoundError(specified)
+        return []
+    directory = Path(get_package_share_directory("rcauto_cpp")) / "config"
+    candidate = directory / ("gazebo_" + mode + ".yaml")
+    profile = candidate if candidate.is_file() else directory / "gazebo_camera.yaml"
+    return [SetLaunchConfiguration("mode_tuning_config", str(profile))]
 
 
 def generate_launch_description():
@@ -47,6 +65,7 @@ def generate_launch_description():
             "sim_steering_limit_rad": "0.70",
             "model_path": LaunchConfiguration("model_path"),
             "tuning_config": camera_tuning_config,
+            "mode_tuning_config": LaunchConfiguration("mode_tuning_config"),
             "foxglove_enabled": foxglove,
         }.items(),
     )
@@ -55,6 +74,8 @@ def generate_launch_description():
         DeclareLaunchArgument("foxglove_enabled", default_value="true"),
         DeclareLaunchArgument("controller_mode", default_value="pid"),
         DeclareLaunchArgument("model_path", default_value=""),
+        DeclareLaunchArgument("mode_tuning_config", default_value=""),
+        OpaqueFunction(function=select_mode_profile),
         DeclareLaunchArgument("autonomy_enabled", default_value="true"),
         # Resolve model://rcauto_350x200 when loading world from installed package.
         SetEnvironmentVariable(

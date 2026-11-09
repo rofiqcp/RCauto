@@ -1,11 +1,13 @@
-"""Train a synthetic two-output ONNX preview controller for simulation.
+"""Train ONNX camera-preview policies for steering and throttle control.
 
-Inputs (camera-only): near lateral error, far lateral error, visual curvature,
-error derivative, and camera risk. Outputs: normalized steering and speed factor [0.25, 1].
-This is a synthetic imitation baseline, not a validated on-road AI policy.
+Inputs: near/far camera lane error, visual curvature, error derivative, camera
+risk. Outputs: normalized steering and speed factor. Supports synthetic
+baseline or supervised imitation of simulated Fuzzy-driving telemetry.
+These models are simulation candidates, not validated real-vehicle policies.
 """
 
 import argparse
+import csv
 from pathlib import Path
 
 import numpy as np
@@ -55,7 +57,86 @@ def train(seed=23, iterations=2100):
     return (w1, b1, w2, b2), mae
 
 
-def save_onnx(path, weights):
+
+def load_expert_samples(paths):
+    """Learn from real simulated camera-controller traces, never odom inputs."""
+    features, labels, times = [], [], []
+    for path in paths:
+        previous = None
+        with path.open(newline="", encoding="utf-8") as stream:
+            for row in csv.DictReader(stream):
+                try:
+                    t = float(row["time_s"])
+                    near = float(row["near_error"])
+                    far = float(row["far_error"])
+                    curve = float(row["curvature"])
+                    risk = float(row["visual_risk"])
+                    conf = float(row["lane_confidence"])
+                    speed = float(row["speed_cmd_mps"])
+                    offset = float(row["centerline_offset_eval_only"])
+                    steering = float(row["steering_normalized"])
+                    throttle = float(row["speed_factor"])
+                except (KeyError, ValueError):
+                    continue
+                fused = 0.3 * near + 0.7 * far
+                rate = 0.0
+                if previous is not None:
+                    dt = t - previous[0]
+                    if 0.0 < dt < 0.25:
+                        rate = float(np.clip((fused - previous[1])/dt/3, -1, 1))
+                previous = (t, fused)
+                x = [near, far, curve, rate, risk]
+                if (row["status"] != "FOLLOW" or conf < 0.55 or
+                        speed < 0.04 or offset > 0.15 or
+                        not np.isfinite(x + [steering, throttle]).all() or
+                        not -1.01 <= steering <= 1.01 or
+                        not 0.24 <= throttle <= 1.01):
+                    continue
+                features.append(x)
+                labels.append([steering, throttle])
+                times.append(t)
+    if len(features) < 400:
+        raise ValueError("At least 400 reliable camera observations required")
+    return (np.asarray(features, np.float32),
+            np.asarray(labels, np.float32),
+            np.asarray(times, np.float32))
+
+
+def train_expert(paths, iterations=3000, seed=47):
+    data, targets, times = load_expert_samples(paths)
+    # Separate every fifth four-second block from training, to limit leakage.
+    heldout = (np.floor(times/4).astype(np.int32) % 5) == 0
+    if heldout.sum() < 50 or (~heldout).sum() < 300:
+        raise ValueError("Insufficient holdout data")
+    x, y = data[~heldout], targets[~heldout]
+    valid_x, valid_y = data[heldout], targets[heldout]
+    rng = np.random.default_rng(seed)
+    w1 = rng.normal(0, 0.33, (5, 32)).astype(np.float32)
+    b1 = np.zeros(32, np.float32)
+    w2 = rng.normal(0, 0.08, (32, 2)).astype(np.float32)
+    b2 = np.zeros(2, np.float32)
+    for _ in range(iterations):
+        idx = rng.integers(0, len(x), 192)
+        batch, labels = x[idx], y[idx]
+        h = np.tanh(batch @ w1 + b1)
+        pred = h @ w2 + b2
+        grad = 2 * (pred-labels) / len(batch)
+        gw2, gb2 = h.T @ grad, grad.sum(axis=0)
+        delta = (grad @ w2.T) * (1-h*h)
+        gw1, gb1 = batch.T @ delta, delta.sum(axis=0)
+        w2 -= .026*gw2
+        b2 -= .026*gb2
+        w1 -= .026*gw1
+        b1 -= .026*gb1
+    predictions = np.tanh(valid_x @ w1 + b1) @ w2 + b2
+    mae = np.abs(predictions-valid_y).mean(axis=0)
+    print("Samples",len(data),"holdout",len(valid_x),
+          "MAE steering/throttle",mae)
+    if not np.isfinite(mae).all() or mae[0] > .13 or mae[1] > .14:
+        raise RuntimeError(f"Expert imitation is too inaccurate: {mae}")
+    return w1, b1, w2, b2
+
+def save_onnx(path, weights, *, expert=False):
     import onnx
     import onnxruntime as ort
     from onnx import TensorProto, helper, numpy_helper
@@ -69,7 +150,7 @@ def save_onnx(path, weights):
         helper.make_node("Add", ["mm2", "b2"], ["control"]),
     ]
     graph = helper.make_graph(
-        nodes, "synthetic_visual_dual_output",
+        nodes, "expert_imitation_visual_dual_output" if expert else "synthetic_visual_dual_output",
         [helper.make_tensor_value_info("input", TensorProto.FLOAT, [None, 5])],
         [helper.make_tensor_value_info("control", TensorProto.FLOAT, [None, 2])],
         initializer=[numpy_helper.from_array(array, name)
@@ -77,7 +158,7 @@ def save_onnx(path, weights):
                                          (w2, "w2"), (b2, "b2"))],
     )
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)],
-                              producer_name="rcauto-visual-dual-synthetic")
+                              producer_name="rcauto-expert-imitation" if expert else "rcauto-visual-dual-synthetic")
     model.ir_version = 8
     onnx.checker.check_model(model)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -87,21 +168,27 @@ def save_onnx(path, weights):
                        [-.4,-.7,-.8,0,.696]], dtype=np.float32)
     output = session.run(None, {"input": sample})[0]
     if (output.shape != (3, 2) or not np.isfinite(output).all() or
-            not (0.25 <= output[:, 1]).all() or
-            not (output[:, 1] <= 1.01).all() or
-            not output[0, 1] > output[1, 1] or
-            not output[0, 1] > .75):
-        raise RuntimeError(f"Unsafe synthesized ONNX output: {output}")
+            not (0.18 <= output[:, 1]).all() or
+            not (output[:, 1] <= 1.10).all() or
+            not (np.abs(output[:, 0]) <= 1.10).all() or
+            not output[0, 1] > output[1, 1]):
+        raise RuntimeError(f"Unsafe ONNX output: {output}")
     return output
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--iterations", type=int, default=2100)
+    parser.add_argument("--iterations", type=int)
+    parser.add_argument("--expert-csv", nargs="+", type=Path)
     arguments = parser.parse_args()
-    weights, mae = train(iterations=arguments.iterations)
-    checks = save_onnx(arguments.output, weights)
-    print("Synthetic dual-output training MAE steering/speed:", mae)
-    print("Straight/curve example outputs:", checks)
+    if arguments.expert_csv:
+        weights = train_expert(arguments.expert_csv,
+                               iterations=arguments.iterations or 3000)
+    else:
+        weights, mae = train(iterations=arguments.iterations or 2100)
+        print("Synthetic training MAE steering/throttle", mae)
+    checks = save_onnx(arguments.output, weights,
+                       expert=bool(arguments.expert_csv))
+    print("Straight and curve output checks:", checks)
     print("Model:", arguments.output)

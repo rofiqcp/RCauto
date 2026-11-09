@@ -34,13 +34,15 @@ def generate_launch_description():
         DeclareLaunchArgument("sim_steering_limit_rad", default_value="0.35"),
         DeclareLaunchArgument("model_path", default_value=""),
         DeclareLaunchArgument("tuning_config", default_value=config),
+        DeclareLaunchArgument("mode_tuning_config", default_value=LaunchConfiguration("tuning_config")),
         DeclareLaunchArgument("foxglove_enabled", default_value="true"),
         DeclareLaunchArgument("foxglove_port", default_value="8767"),
         DeclareLaunchArgument("foxglove_address", default_value="127.0.0.1"),
         OpaqueFunction(function=validate),
         Node(package="rcauto_cpp", executable="rcauto_vision", name="rcauto_cpp_vision",
              output="screen",
-             parameters=[config, LaunchConfiguration("tuning_config"), {
+             parameters=[config, LaunchConfiguration("tuning_config"),
+                         LaunchConfiguration("mode_tuning_config"), {
                  "vision.source": LaunchConfiguration("camera_source"),
                  "vision.lane_style": LaunchConfiguration("lane_style"),
                  "vision.line_color": LaunchConfiguration("line_color"),
@@ -49,7 +51,8 @@ def generate_launch_description():
              output="screen", parameters=[config, {
                  "detection.hardware_mode": ParameterValue(LaunchConfiguration("hardware_enabled"),value_type=bool)}]),
         Node(package="rcauto_cpp", executable="rcauto_controller", name="rcauto_cpp_controller",
-             output="screen", parameters=[config, LaunchConfiguration("tuning_config"), {
+             output="screen", parameters=[config, LaunchConfiguration("tuning_config"),
+                         LaunchConfiguration("mode_tuning_config"), {
                  "controller.mode": LaunchConfiguration("controller_mode"),
                  "controller.ai.model_path": LaunchConfiguration("model_path"),
                  "safety.hardware_mode": ParameterValue(LaunchConfiguration("hardware_enabled"), value_type=bool),
