@@ -1,6 +1,6 @@
 """C++-only ROS nodes. Simulated data and physical PWM must never coexist."""
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -27,18 +27,8 @@ def actuator_actions(context):
     backend = LaunchConfiguration("actuator_backend").perform(context)
     hardware = LaunchConfiguration("hardware_enabled").perform(context).lower() in ("1", "true")
     if backend == "esp32":
-        if not hardware:
-            return []
-        return [ExecuteProcess(
-            cmd=["/usr/bin/python3", "-B",
-                 str(Path.home() / "RCauto" / "tools" / "rcauto_esp32.py"),
-                 "--ros", "--port",
-                 LaunchConfiguration("esp32_port").perform(context),
-                 "--max-steering-rad",
-                 LaunchConfiguration("sim_steering_limit_rad").perform(context),
-                 "--max-speed-mps",
-                 LaunchConfiguration("esp32_max_speed_mps").perform(context)],
-            output="screen")]
+        # One reconnection-capable ROS bridge owns the serial port.
+        return []
     config = str(Path(get_package_share_directory("rcauto_cpp")) / "config" / "robot.yaml")
     return [Node(package="rcauto_cpp", executable="rcauto_actuator",
                  name="rcauto_cpp_actuator", output="screen",
@@ -98,10 +88,19 @@ def generate_launch_description():
              output="screen", condition=IfCondition(sim)),
         Node(package="rcauto_cpp", executable="rcauto_tuning_persist.py",
              name="rcauto_tuning_persistence", output="screen",
-             condition=IfCondition(LaunchConfiguration("camera_only"))),
+             condition=UnlessCondition(sim)),
         Node(package="rcauto_cpp", executable="rcauto_esp32_hotplug.py",
              name="rcauto_esp32_hotplug", output="screen",
-             condition=IfCondition(LaunchConfiguration("camera_only"))),
+             condition=UnlessCondition(sim),
+             parameters=[{
+                 "port": LaunchConfiguration("esp32_port"),
+                 "hardware_enabled": ParameterValue(
+                     LaunchConfiguration("hardware_enabled"), value_type=bool),
+                 "max_steering_rad": ParameterValue(
+                     LaunchConfiguration("sim_steering_limit_rad"), value_type=float),
+                 "max_speed_mps": ParameterValue(
+                     LaunchConfiguration("esp32_max_speed_mps"), value_type=float),
+             }]),
         Node(package="foxglove_bridge", executable="foxglove_bridge", name="rcauto_cpp_foxglove",
              output="screen", condition=IfCondition(LaunchConfiguration("foxglove_enabled")),
              parameters=[{"port": ParameterValue(LaunchConfiguration("foxglove_port"),
@@ -111,7 +110,8 @@ def generate_launch_description():
                                            "parametersSubscribe", "services",
                                            "connectionGraph"],
                           "client_topic_whitelist": ["^/rcauto/operator/.*$"],
-                          "param_whitelist": [r"^/rcauto_cpp_(controller|vision|perception|actuator)\..*$"],
+                          "param_whitelist": [r"^/rcauto_cpp_(controller|vision|perception|actuator)\..*$",
+                                              r"^/rcauto_esp32_hotplug\..*$"],
                           "service_whitelist": ["^/rcauto_cpp_.*$"],
                           "topic_whitelist": ["^/rcauto/.*$", "^/parameter_events$"]}]),
     ])

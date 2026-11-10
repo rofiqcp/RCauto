@@ -2,12 +2,12 @@
 
 #include <stdint.h>
 
-enum class ButtonEvent { None, ShortPress, LongPress };
+enum class ButtonEvent { None, Pressed, LongPress };
 
 class StartButton {
  public:
   static constexpr uint32_t kDebounceMs = 45;
-  static constexpr uint32_t kLongPressMs = 1200;
+  static constexpr uint32_t kLongPressMs = 2000;
 
   void begin(bool pressed, uint32_t now) {
     initialized_ = true;
@@ -38,18 +38,17 @@ class StartButton {
         pressedAtMs_ = now;
         longHandled_ = false;
         validPress_ = readyForPress_;
+        if (validPress_) return ButtonEvent::Pressed;
       } else {
         if (!readyForPress_) {
           readyForPress_ = true;
           return ButtonEvent::None;
         }
-        if (validPress_ && !longHandled_) {
+        if (validPress_ && !longHandled_ &&
+            now - pressedAtMs_ >= kLongPressMs) {
           validPress_ = false;
-          if (now - pressedAtMs_ >= kLongPressMs) {
-            longHandled_ = true;
-            return ButtonEvent::LongPress;
-          }
-          return ButtonEvent::ShortPress;
+          longHandled_ = true;
+          return ButtonEvent::LongPress;
         }
         validPress_ = false;
       }

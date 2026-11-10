@@ -36,6 +36,7 @@ uint32_t lastDriveMs = 0;
 uint32_t lastRampMs = 0;
 uint32_t directionAllowedAt = 0;
 StartButton startButton;
+bool longStopEligible = false;
 char rxLine[64] = {};
 size_t rxLength = 0;
 bool overflow = false;
@@ -240,11 +241,16 @@ void receiveSerial() {
 void pollStartButton() {
   const ButtonEvent event = startButton.update(
       digitalRead(kStartButtonPin) == HIGH, millis());
-  if (event == ButtonEvent::ShortPress) {
+  if (event == ButtonEvent::Pressed) {
+    longStopEligible = armed;
+    Serial.println("BUTTON,PRESSED");
     if (!armed) setArmed(true, "BUTTON");
   } else if (event == ButtonEvent::LongPress) {
-    setArmed(false, "BUTTON");
+    Serial.println("BUTTON,LONG");
+    if (longStopEligible && armed) setArmed(false, "BUTTON");
+    longStopEligible = false;
   }
+  if (!startButton.pressed()) longStopEligible = false;
 }
 
 void updateMotor() {

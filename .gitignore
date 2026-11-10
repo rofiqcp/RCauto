@@ -58,3 +58,7 @@ Thumbs.db
 **/*.elf
 **/*.map
 **/*.bin
+
+# Local OpenCV5 toolchain and firmware-build venv (not version controlled).
+/.opencv5/
+/.platformio_venv/

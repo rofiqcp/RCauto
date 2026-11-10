@@ -15,6 +15,20 @@ type Tuning = {
 
 const definitions: readonly Tuning[] = [
   {
+    key: "/rcauto_esp32_hotplug.max_motor_output_percent",
+    title: "PWM maksimum ESP32 (%)",
+    min: 0,
+    max: 100,
+    step: 1,
+  },
+  {
+    key: "/rcauto_esp32_hotplug.max_steering_output_percent",
+    title: "Sensitivitas kemudi ESP32 (%)",
+    min: 0,
+    max: 100,
+    step: 1,
+  },
+  {
     key: "/rcauto_cpp_controller.controller.pid.kp",
     title: "Steering Kp",
     min: 0,
@@ -199,6 +213,16 @@ const definitions: readonly Tuning[] = [
 ];
 
 const parameterHelp: Record<string, readonly [string, string, string]> = {
+  "PWM maksimum ESP32 (%)": [
+    "Batas persentase PWM motor BTS7960 yang dikeluarkan bridge ROS. Nilai 0 berarti selalu tidak ada tenaga motor.",
+    "Naik: motor dapat menerima perintah PWM yang lebih besar (hanya ketika mode hardware aktif dan START).",
+    "Turun: batas PWM motor mengecil; nilai 0 menonaktifkan perintah tenaga motor.",
+  ],
+  "Sensitivitas kemudi ESP32 (%)": [
+    "Pengali keluaran kemudi yang dikirim melalui USB ke servo ESP32; tidak mengubah parameter PID atau kalibrasi mekanis.",
+    "Naik: servo dapat menerima perintah belok yang lebih besar dari kontroler kamera.",
+    "Turun: belokan servo lebih lembut; nilai 0 berarti perintah steering netral.",
+  ],
   "Steering Kp": [
     "Penguatan proporsional pada error posisi jalur. Mengoreksi arah berdasarkan selisih target dengan posisi robot.",
     "Naik: kemudi lebih cepat dan agresif mengikuti garis; terlalu tinggi dapat membuat goyangan kiri-kanan.",
@@ -419,7 +443,9 @@ export function initControlPanel(context: PanelExtensionContext): () => void {
   const sharedHeading = add("div", root, "Pengaturan umum kemudi, kamera, kecepatan, dan cone");
   sharedHeading.style.cssText = "font-size:13px;color:#d4e5f4;font-weight:700;margin-top:17px";
   const common = add("div", root);
-  const groupFor = (key: string): "pid" | "fuzzy" | "ai" | null => {
+  const espSettings = document.createElement("div");
+  const groupFor = (key: string): "pid" | "fuzzy" | "ai" | "esp" | null => {
+    if (key.startsWith("/rcauto_esp32_hotplug.")) return "esp";
     if (key.includes(".controller.pid.") || key.includes(".controller.speed_pid.")) return "pid";
     if (key.includes(".controller.fuzzy.")) return "fuzzy";
     if (key.includes(".controller.ai.")) return "ai";
@@ -438,7 +464,8 @@ export function initControlPanel(context: PanelExtensionContext): () => void {
   const pending = new Map<string, { value: number; time: number; label: string }>();
 
   for (const config of definitions) {
-    const label = add("div", groupFor(config.key) ? tuning : common);
+    const family = groupFor(config.key);
+    const label = add("div", family === "esp" ? espSettings : family ? tuning : common);
     label.style.cssText = "display:block;padding:7px 0;border-bottom:1px solid #2d3b4a";
     add("div", label, config.title).style.cssText = "color:#ccd7e4;margin-bottom:5px";
     const line = add("div", label);
@@ -483,9 +510,15 @@ export function initControlPanel(context: PanelExtensionContext): () => void {
   const hardwareHelp = add(
     "div",
     root,
-    "BTS7960 dikendalikan melalui GPIO14/27; servo kemudi melalui GPIO13. Kalibrasi pulsa ESC tidak berlaku untuk BTS7960. Sambungan USB otomatis tidak menjalankan motor.",
+    "BTS7960: GPIO14 (maju) / GPIO27 (mundur), PWM 20 kHz 10-bit. Servo: GPIO13, pulsa netral 1500 µs. Tombol: GPIO12, tekan cepat START, tahan 2 detik STOP. Kamera dan ESP32 USB mendukung hotplug; sambungan ulang tidak pernah otomatis mengaktifkan motor.",
   );
   hardwareHelp.style.cssText = "font-size:11px;color:#aabfce;line-height:1.5";
+  const espRuntime = add("div", root, "ESP32: menunggu telemetri firmware...");
+  espRuntime.style.cssText =
+    "margin:6px 0;padding:7px 9px;background:#1c2a39;border-radius:6px;color:#bfdbef;font-size:11px;white-space:pre-wrap;line-height:1.6";
+  const espMode = add("div", root, "Mode hardware: menunggu parameter bridge...");
+  espMode.style.cssText = "font-size:11px;color:#9cb8d0;margin:5px 0";
+  root.appendChild(espSettings);
 
   let ready = false,
     armed = false,
@@ -509,13 +542,17 @@ export function initControlPanel(context: PanelExtensionContext): () => void {
     toggle.disabled = !ready || commandPending !== undefined;
     toggle.textContent = armed ? "STOP" : "START";
     toggle.style.background = armed ? "#b45309" : "#16734c";
+    toggle.title = armed
+      ? "STOP segera melalui Foxglove. Tombol fisik ESP32: tahan 2 detik untuk STOP."
+      : "START segera; tombol fisik ESP32: tekan singkat sekali untuk START.";
     mode.disabled = !ready;
     if (document.activeElement !== mode || modeChangePending === undefined) {
       mode.value = currentMode;
     }
     for (const [key, { wrapper, slider }] of rows) {
       const family = groupFor(key);
-      wrapper.style.display = family === null || family === currentMode ? "block" : "none";
+      wrapper.style.display =
+        family === null || family === "esp" || family === currentMode ? "block" : "none";
       slider.disabled = !ready || !known.has(key);
     }
     sharedHeading.style.display = "block";
@@ -543,6 +580,8 @@ export function initControlPanel(context: PanelExtensionContext): () => void {
     "/rcauto/status",
     "/rcauto/control/mode",
     "/rcauto/esp32/status",
+    "/rcauto/firmware/status",
+    "/rcauto/firmware/armed",
     "/rcauto/camera/status",
     "/rcauto/vision/avoidance_active",
     "/rcauto/vision/avoidance_blocked",
@@ -559,6 +598,13 @@ export function initControlPanel(context: PanelExtensionContext): () => void {
   context.onRender = (state, done) => {
     try {
       if (state.parameters) {
+        const hardwareEnabled = state.parameters.get("/rcauto_esp32_hotplug.hardware_enabled");
+        if (typeof hardwareEnabled === "boolean") {
+          espMode.textContent = hardwareEnabled
+            ? "Mode hardware AKTIF — output motor mengikuti START/STOP dan batas PWM"
+            : "Mode PREVIEW — perintah PWM motor selalu nol, START hanya mengaktifkan kontrol kamera";
+          espMode.style.color = hardwareEnabled ? "#eac681" : "#91e2b4";
+        }
         for (const [key, control] of rows) {
           const value = state.parameters.get(key);
           if (typeof value !== "number" || !Number.isFinite(value)) continue;
@@ -622,7 +668,40 @@ export function initControlPanel(context: PanelExtensionContext): () => void {
             }
             break;
           case "/rcauto/esp32/status":
-            if (typeof data === "string") motor.textContent = data;
+            if (typeof data === "string") {
+              motor.textContent = data;
+              motor.style.color = data.startsWith("ESP32 CONNECTED") ? "#91e2b4" : "#fbbf70";
+            }
+            break;
+          case "/rcauto/firmware/status":
+            if (typeof data === "string" && data.startsWith("STATUS,")) {
+              const fields = new Map(
+                data
+                  .slice(7)
+                  .split(",")
+                  .filter((part) => part.includes("="))
+                  .map((part) => {
+                    const separator = part.indexOf("=");
+                    return [part.slice(0, separator), part.slice(separator + 1)];
+                  }),
+              );
+              espRuntime.textContent =
+                "Firmware: " +
+                (fields.get("armed") === "1" ? "ARMED" : "DISARMED") +
+                " | Steering: " +
+                (fields.get("steer") ?? "—") +
+                " | Motor aktual: " +
+                (fields.get("speed") ?? "—") +
+                " | Target: " +
+                (fields.get("target") ?? "—") +
+                "\nDuty BTS7960 maju: " +
+                (fields.get("forward_duty") ?? "—") +
+                "/1023 | mundur: " +
+                (fields.get("reverse_duty") ?? "—") +
+                "/1023";
+            }
+            break;
+          case "/rcauto/firmware/armed":
             break;
           case "/rcauto/camera/status":
             if (typeof data === "string") {

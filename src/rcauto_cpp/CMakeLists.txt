@@ -10,6 +10,13 @@ find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(ackermann_msgs REQUIRED)
 find_package(vision_msgs REQUIRED)
+# Project-local OpenCV 5 and matching cv_bridge take priority on sirobo.
+set(_rcauto_opencv5_dir
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../.opencv5/install/lib/cmake/opencv5")
+if(EXISTS "${_rcauto_opencv5_dir}/OpenCVConfig.cmake")
+  set(OpenCV_DIR "${_rcauto_opencv5_dir}" CACHE PATH
+      "Use project-local OpenCV 5" FORCE)
+else()
 # Keep OpenCV ABI identical to native RoboStack cv_bridge.
 if(DEFINED ENV{CONDA_PREFIX} AND
    EXISTS "$ENV{CONDA_PREFIX}/lib/cmake/opencv5/OpenCVConfig.cmake")
@@ -20,6 +27,7 @@ else()
   if(EXISTS "${_ros_opencv_dir}/OpenCVConfig.cmake")
     set(OpenCV_DIR "${_ros_opencv_dir}" CACHE PATH "Use system OpenCV with cv_bridge" FORCE)
   endif()
+endif()
 endif()
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio dnn)
 if(OpenCV_VERSION VERSION_GREATER_EQUAL "5.0")
