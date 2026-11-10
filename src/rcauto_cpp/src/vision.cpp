@@ -1,14 +1,29 @@
+#include "rcauto_cpp/road_vision.hpp"
+#include "rcauto_cpp/cone_avoidance.hpp"
+#include "rcauto_cpp/target_reference.hpp"
+#include "rcauto_cpp/traffic_cone.hpp"
 #include <cv_bridge/cv_bridge.h>
 #include <opencv2/imgproc.hpp>
+#include <opencv2/imgcodecs.hpp>
 #include <opencv2/videoio.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/msg/compressed_image.hpp>
+#include <vision_msgs/msg/detection2_d_array.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/float32.hpp>
+#include <std_msgs/msg/int32.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
+#include <fcntl.h>
+#include <linux/videodev2.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
 #include <cmath>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 
@@ -16,11 +31,17 @@ using namespace std::chrono_literals;
 class VisionNode final : public rclcpp::Node {
  public:
   VisionNode() : Node("rcauto_cpp_vision") {
+    // Avoid OpenCV spawning one thread per Xeon core for small 640x480 frames.
+    cv::setNumThreads(2);
     declare_parameter("vision.source", "ros");
     declare_parameter("vision.hardware_mode", false);
     declare_parameter("vision.lane_style", "tape");
     declare_parameter("vision.line_color", "yellow");
-    declare_parameter("vision.camera_index", 0);
+    declare_parameter("vision.camera_device", "auto");
+    declare_parameter("vision.camera_capture_width", 1280);
+    declare_parameter("vision.camera_capture_height", 720);
+    declare_parameter("vision.camera_output_width", 1080);
+    declare_parameter("vision.target_distance_ratio", 0.55);
     declare_parameter("vision.yellow_h_min", 15);
     declare_parameter("vision.yellow_h_max", 42);
     declare_parameter("vision.min_saturation", 70);
@@ -30,6 +51,10 @@ class VisionNode final : public rclcpp::Node {
     declare_parameter("vision.road_min_width_ratio", 0.22);
     declare_parameter("vision.road_max_width_ratio", 0.89);
     declare_parameter("vision.publish_debug", true);
+    declare_parameter("vision.detect_traffic_cones", true);
+    declare_parameter("vision.cone_avoidance_enabled", true);
+    declare_parameter("vision.cone_avoidance_offset_ratio", 0.50);
+    declare_parameter("vision.jpeg_quality", 72);
     declare_parameter("vision.fps", 15.0);
     hardware_mode_ = get_parameter("vision.hardware_mode").as_bool();
     refresh();
@@ -49,7 +74,11 @@ class VisionNode final : public rclcpp::Node {
             result.reason="Vision tuning disabled in hardware mode; restart disarmed";
             break;
           }
-          if (n == "vision.source" || n == "vision.camera_index" || n == "vision.fps") {
+          if (n == "vision.source" ||
+              n == "vision.camera_device" || n == "vision.fps" ||
+              n == "vision.camera_capture_width" ||
+              n == "vision.camera_capture_height" ||
+              n == "vision.camera_output_width") {
             result.successful = false; result.reason = "Camera source/fps requires restart"; break;
           }
           if (n == "vision.lane_style") {
@@ -68,6 +97,14 @@ class VisionNode final : public rclcpp::Node {
               throw std::invalid_argument("HSV limit invalid");
             if (n == "vision.yellow_h_min") candidate_hmin=static_cast<int>(item.as_int());
             if (n == "vision.yellow_h_max") candidate_hmax=static_cast<int>(item.as_int());
+          }
+          if (n == "vision.cone_avoidance_offset_ratio") {
+            if (item.as_double()<0.10 || item.as_double()>0.85)
+              throw std::invalid_argument("cone offset must be 0.10..0.85");
+          }
+          if (n == "vision.target_distance_ratio") {
+            if(item.as_double()<0.15 || item.as_double()>0.85)
+              throw std::invalid_argument("Target distance ratio must be 0.15..0.85");
           }
           if (n == "vision.lookahead_weight") {
             if (item.as_double() < 0.0 || item.as_double() > 1.0)
@@ -98,23 +135,57 @@ class VisionNode final : public rclcpp::Node {
     pub_error_ = create_publisher<std_msgs::msg::Float32>("/rcauto/lane_error", 10);
     pub_raw_error_ = create_publisher<std_msgs::msg::Float32>("/rcauto/vision/lane_error_raw",10);
     pub_conf_ = create_publisher<std_msgs::msg::Float32>("/rcauto/lane_confidence", 10);
+    pub_edge_conf_ = create_publisher<std_msgs::msg::Float32>(
+        "/rcauto/vision/visible_edge_confidence",10);
+    pub_edge_side_ = create_publisher<std_msgs::msg::Int32>(
+        "/rcauto/vision/visible_edge_side",10);
+    pub_edge_only_ = create_publisher<std_msgs::msg::Bool>(
+        "/rcauto/vision/edge_only",10);
     pub_near_ = create_publisher<std_msgs::msg::Float32>("/rcauto/vision/near_error",10);
     pub_far_ = create_publisher<std_msgs::msg::Float32>("/rcauto/vision/far_error",10);
     pub_curvature_ = create_publisher<std_msgs::msg::Float32>("/rcauto/vision/curvature",10);
     pub_preview_ = create_publisher<std_msgs::msg::Float32>("/rcauto/vision/preview_visibility",10);
     pub_cross_ = create_publisher<std_msgs::msg::Bool>("/rcauto/intersection", 10);
-    pub_debug_ = create_publisher<sensor_msgs::msg::Image>("/rcauto/camera/annotated", 2);
+    pub_debug_ = create_publisher<sensor_msgs::msg::Image>("/rcauto/camera/annotated", 1);
+    pub_jpeg_ = create_publisher<sensor_msgs::msg::CompressedImage>(
+        "/rcauto/camera/annotated/compressed",1);
+    pub_eco_jpeg_ = create_publisher<sensor_msgs::msg::CompressedImage>(
+        "/rcauto/camera/preview/compressed",1);
+    pub_raw_jpeg_ = create_publisher<sensor_msgs::msg::CompressedImage>(
+        "/rcauto/camera/raw/compressed",1);
+    pub_avoid_active_ = create_publisher<std_msgs::msg::Bool>(
+        "/rcauto/vision/avoidance_active",10);
+    pub_avoid_blocked_ = create_publisher<std_msgs::msg::Bool>(
+        "/rcauto/vision/avoidance_blocked",10);
+    pub_avoid_offset_ = create_publisher<std_msgs::msg::Float32>(
+        "/rcauto/vision/avoidance_offset_norm",10);
+    pub_cone_ = create_publisher<std_msgs::msg::Bool>(
+        "/rcauto/vision/traffic_cone/detected",10);
+    pub_cone_boxes_ = create_publisher<vision_msgs::msg::Detection2DArray>(
+        "/rcauto/vision/traffic_cone/detections",10);
+    const auto capture_width=get_parameter("vision.camera_capture_width").as_int();
+    const auto capture_height=get_parameter("vision.camera_capture_height").as_int();
+    const auto output_width=get_parameter("vision.camera_output_width").as_int();
+    if(capture_width<320 || capture_width>2560 ||
+       capture_height<240 || capture_height>1440 ||
+       output_width<320 || output_width>1080 ||
+       output_width>capture_width)
+      throw std::invalid_argument("Unsupported camera capture/output dimensions");
+    capture_width_=static_cast<int>(capture_width);
+    capture_height_=static_cast<int>(capture_height);
+    output_width_=static_cast<int>(output_width);
+    pub_camera_status_ = create_publisher<std_msgs::msg::String>(
+        "/rcauto/camera/status",10);
+    pub_camera_connected_ = create_publisher<std_msgs::msg::Bool>(
+        "/rcauto/camera/connected",10);
     if (get_parameter("vision.source").as_string() == "usb") {
-      camera_.open(static_cast<int>(get_parameter("vision.camera_index").as_int()));
-      camera_.set(cv::CAP_PROP_FRAME_WIDTH, 640);
-      camera_.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
-      if (!camera_.isOpened()) RCLCPP_ERROR(get_logger(), "Camera missing, will stop by stale watchdog");
+      camera_preference_ = get_parameter("vision.camera_device").as_string();
+      if(camera_preference_.empty())camera_preference_="auto";
       const double fps = get_parameter("vision.fps").as_double();
       if (fps < 1 || fps > 60) throw std::invalid_argument("fps outside [1,60]");
-      timer_ = create_wall_timer(std::chrono::duration<double>(1.0 / fps), [this]() {
-        cv::Mat frame;
-        if (camera_.isOpened() && camera_.read(frame) && !frame.empty()) analyze(frame);
-      });
+      timer_ = create_wall_timer(std::chrono::duration<double>(1.0 / fps),
+                                 [this]() { poll_usb_camera(); });
+      report_camera(false, "SEARCHING | USB camera auto-detection enabled");
     } else if (get_parameter("vision.source").as_string() == "ros") {
       sub_image_ = create_subscription<sensor_msgs::msg::Image>("/rcauto/camera/image", 3,
         [this](sensor_msgs::msg::Image::ConstSharedPtr msg) {
@@ -128,6 +199,138 @@ class VisionNode final : public rclcpp::Node {
     } else throw std::invalid_argument("vision.source must be usb or ros");
   }
  private:
+  static bool is_capture_device(const std::string& device) {
+    const int fd=::open(device.c_str(),O_RDONLY|O_NONBLOCK|O_CLOEXEC);
+    if(fd<0)return false;
+    v4l2_capability capabilities{};
+    const bool query_ok=::ioctl(fd,VIDIOC_QUERYCAP,&capabilities)==0;
+    ::close(fd);
+    if(!query_ok)return false;
+    const auto flags=capabilities.capabilities&V4L2_CAP_DEVICE_CAPS ?
+        capabilities.device_caps:capabilities.capabilities;
+    return (flags&V4L2_CAP_VIDEO_CAPTURE)!=0 &&
+           (flags&V4L2_CAP_STREAMING)!=0;
+  }
+
+  std::vector<std::string> camera_candidates() const {
+    if(camera_preference_!="auto")return {camera_preference_};
+    namespace fs=std::filesystem;
+    std::vector<std::string> devices;
+    std::error_code error;
+    const fs::path by_id("/dev/v4l/by-id");
+    if(fs::is_directory(by_id,error)) {
+      for(const auto& entry:fs::directory_iterator(
+              by_id,fs::directory_options::skip_permission_denied,error)) {
+        const auto name=entry.path().filename().string();
+        if(name.find("-video-index0")==std::string::npos)continue;
+        const std::string device=entry.path().string();
+        if(fs::exists(entry.path(),error) &&
+           is_capture_device(device))
+          devices.push_back(device);
+      }
+    }
+    std::sort(devices.begin(),devices.end());
+    if(!devices.empty())return devices;
+    for(int i=0;i<16;++i) {
+      const std::string device="/dev/video"+std::to_string(i);
+      if(fs::exists(device,error) && is_capture_device(device))
+        devices.push_back(device);
+    }
+    return devices;
+  }
+
+  void report_camera(bool connected,const std::string& description) {
+    if(connected!=camera_connected_ ||
+       description!=camera_state_) {
+      camera_state_=description;
+      camera_connected_=connected;
+      if(connected)RCLCPP_INFO(get_logger(),"%s",description.c_str());
+      else RCLCPP_WARN(get_logger(),"%s",description.c_str());
+    }
+    std_msgs::msg::String state;
+    state.data=camera_state_;
+    pub_camera_status_->publish(state);
+    std_msgs::msg::Bool present;
+    present.data=connected;
+    pub_camera_connected_->publish(present);
+  }
+
+  void disconnect_camera(const std::string& reason) {
+    if(camera_.isOpened())camera_.release();
+    active_device_.clear();
+    failed_reads_=0;
+    filtered_error_=0.0;
+    have_filtered_error_=false;
+    last_cone_time_={};
+    // A previous frame must not remain valid after USB loss.
+    std_msgs::msg::Float32 zero;
+    zero.data=0.0F;
+    pub_conf_->publish(zero);
+    report_camera(false,reason);
+  }
+
+  void poll_usb_camera() {
+    namespace fs=std::filesystem;
+    const auto now=std::chrono::steady_clock::now();
+    if(camera_.isOpened()) {
+      std::error_code error;
+      if(!fs::exists(active_device_,error)) {
+        disconnect_camera("DISCONNECTED | USB camera removed, scanning");
+      } else {
+        cv::Mat frame;
+        const bool received=camera_.read(frame) && !frame.empty();
+        if(received) {
+          failed_reads_=0;
+          analyze_camera_frame(frame);
+          report_camera(true,"CONNECTED | "+active_device_);
+          return;
+        }
+        if(++failed_reads_<3)return;
+        disconnect_camera("DISCONNECTED | camera frames lost, reconnecting");
+      }
+    }
+    if(now-last_camera_attempt_<std::chrono::seconds(1)) {
+      report_camera(false,"SEARCHING | camera USB hot-plug");
+      return;
+    }
+    last_camera_attempt_=now;
+    for(const auto& candidate:camera_candidates()) {
+      if(!camera_.open(candidate,cv::CAP_V4L2))continue;
+      camera_.set(cv::CAP_PROP_FOURCC,
+                  cv::VideoWriter::fourcc('M','J','P','G'));
+      camera_.set(cv::CAP_PROP_BUFFERSIZE,1);
+      camera_.set(cv::CAP_PROP_FRAME_WIDTH,capture_width_);
+      camera_.set(cv::CAP_PROP_FRAME_HEIGHT,capture_height_);
+      camera_.set(cv::CAP_PROP_FPS,
+                  get_parameter("vision.fps").as_double());
+      active_device_=candidate;
+      cv::Mat first;
+      if(camera_.read(first) && !first.empty()) {
+        failed_reads_=0;
+        report_camera(true,"CONNECTED | "+candidate);
+        analyze_camera_frame(first);
+        return;
+      }
+      camera_.release();
+      active_device_.clear();
+    }
+    report_camera(false,"SEARCHING | no readable USB capture camera");
+  }
+
+  void analyze_camera_frame(const cv::Mat& captured) {
+    if(captured.empty())return;
+    if(captured.cols>output_width_) {
+      const int scaled_height=std::max(1,cvRound(
+          static_cast<double>(captured.rows)*output_width_/captured.cols));
+      cv::Mat output;
+      cv::resize(captured,output,cv::Size(output_width_,scaled_height),
+                 0,0,cv::INTER_AREA);
+      analyze(output);
+    } else {
+      analyze(captured);
+    }
+  }
+
   void refresh() {
     style_ = get_parameter("vision.lane_style").as_string();
     color_ = get_parameter("vision.line_color").as_string();
@@ -136,40 +339,71 @@ class VisionNode final : public rclcpp::Node {
     smin_ = static_cast<int>(get_parameter("vision.min_saturation").as_int());
     vmin_ = static_cast<int>(get_parameter("vision.min_brightness").as_int());
     lookahead_weight_ = get_parameter("vision.lookahead_weight").as_double();
+    target_distance_ratio_ =
+        get_parameter("vision.target_distance_ratio").as_double();
     smoothing_alpha_ = get_parameter("vision.error_smoothing_alpha").as_double();
     road_min_ = get_parameter("vision.road_min_width_ratio").as_double();
     road_max_ = get_parameter("vision.road_max_width_ratio").as_double();
     show_debug_ = get_parameter("vision.publish_debug").as_bool();
+    detect_cones_ = get_parameter("vision.detect_traffic_cones").as_bool();
+    avoid_enabled_ = get_parameter("vision.cone_avoidance_enabled").as_bool();
+    avoid_offset_ratio_ =
+        get_parameter("vision.cone_avoidance_offset_ratio").as_double();
+    jpeg_quality_ = static_cast<int>(
+        get_parameter("vision.jpeg_quality").as_int());
+    if (jpeg_quality_<35 || jpeg_quality_>95)
+      throw std::invalid_argument("JPEG quality must be 35..95");
   }
   void analyze(const cv::Mat& frame) {
     if (frame.empty() || frame.cols < 30 || frame.rows < 30) return;
     if (pending_) { pending_ = false; refresh(); }
+    if(pub_raw_jpeg_->get_subscription_count()>0) {
+      std::vector<unsigned char> encoded;
+      if(cv::imencode(".jpg",frame,encoded,
+                      {cv::IMWRITE_JPEG_QUALITY,60})) {
+        sensor_msgs::msg::CompressedImage image;
+        image.header.stamp=get_clock()->now();
+        image.header.frame_id="camera_link";
+        image.format="jpeg";
+        image.data=std::move(encoded);
+        pub_raw_jpeg_->publish(image);
+      }
+    }
     const int w = frame.cols, h = frame.rows;
-    const int y0 = static_cast<int>(h * (style_ == "road" ? 0.45 : 0.31));
-    cv::Mat hsv; cv::cvtColor(frame(cv::Rect(0, y0, w, h-y0)), hsv, cv::COLOR_BGR2HSV);
+    const int y0 = static_cast<int>(h*0.31);
     cv::Mat mask;
-    if (style_ == "road") {
-      cv::Mat white, yellow;
-      cv::inRange(hsv, cv::Scalar(0,0,140), cv::Scalar(179,65,255), white);
-      cv::inRange(hsv, cv::Scalar(hmin_,smin_,vmin_),
-                  cv::Scalar(hmax_,255,255), yellow);
-      cv::bitwise_or(white, yellow, mask);
-    } else if (color_ == "black") {
-      cv::inRange(hsv, cv::Scalar(0,0,0), cv::Scalar(179,255,85), mask);
-    } else if (color_ == "white") {
-      cv::inRange(hsv, cv::Scalar(0,0,150), cv::Scalar(179,75,255), mask);
-    } else {
-      cv::inRange(hsv, cv::Scalar(hmin_,smin_,vmin_),
-                  cv::Scalar(hmax_,255,255), mask);
+    if (style_ != "road") {
+      cv::Mat hsv;
+      cv::cvtColor(frame(cv::Rect(0,y0,w,h-y0)),hsv,cv::COLOR_BGR2HSV);
+      if (color_ == "black") {
+        cv::inRange(hsv,cv::Scalar(0,0,0),
+                    cv::Scalar(179,255,85),mask);
+      } else if (color_ == "white") {
+        cv::inRange(hsv,cv::Scalar(0,0,150),
+                    cv::Scalar(179,75,255),mask);
+      } else {
+        cv::inRange(hsv,cv::Scalar(hmin_,smin_,vmin_),
+                    cv::Scalar(hmax_,255,255),mask);
+      }
     }
     double error = 0, confidence = 0;
     double near_error = 0, far_error = 0, curvature = 0, preview_visibility = 0;
+    double visible_edge_confidence=0;
+    int visible_edge_side=0;
+    bool edge_only=false;
     cv::Mat debug = frame.clone();
-    const cv::Mat mid = mask(cv::Range(static_cast<int>(mask.rows*.15),
-                                      static_cast<int>(mask.rows*.55)), cv::Range::all());
-    int broad_rows = 0;
-    for (int y=0; y<mid.rows; ++y) if (cv::countNonZero(mid.row(y)) > w*0.65) ++broad_rows;
-    const bool intersection = broad_rows >= std::max(2, static_cast<int>(mid.rows*.12));
+    bool intersection=false;
+    std::optional<rcauto_cpp::LaneObservation> lane_measurement;
+    std::optional<cv::Point> target_point;
+    if (style_ == "tape") {
+      const auto mid=mask(cv::Range(static_cast<int>(mask.rows*.15),
+                                    static_cast<int>(mask.rows*.55)),
+                          cv::Range::all());
+      int broad_rows=0;
+      for(int y=0;y<mid.rows;++y)
+        if(cv::countNonZero(mid.row(y))>w*.65)++broad_rows;
+      intersection=broad_rows>=std::max(2,static_cast<int>(mid.rows*.12));
+    }
     if (style_ == "tape") {
       // Camera-only detection of the disconnected central guide markings.
       // Solid road boundaries form large connected components and are rejected.
@@ -390,33 +624,143 @@ class VisionNode final : public rclcpp::Node {
         }
       }
     } else {
-      cv::Mat edges;
-      cv::Canny(mask, edges, 70,140);
-      std::vector<cv::Vec4i> lines;
-      cv::HoughLinesP(edges,lines,1,CV_PI/180,22,std::max(14,w/15),std::max(10,w/20));
-      std::vector<double> left,right;
-      const double ref=mask.rows*.88;
-      for(const auto& line:lines) {
-        const double dy=line[3]-line[1], dx=line[2]-line[0];
-        if(std::abs(dy) < mask.rows*.08) continue;
-        const double slope=dx/dy;
-        if(std::abs(slope)<.1 || std::abs(slope)>1.5) continue;
-        const double xref=line[0]+(ref-line[1])*slope;
-        if(xref<0 || xref>=w) continue;
-        (xref<w/2.?left:right).push_back(xref);
+      const auto road=rcauto_cpp::detect_road_markings(
+          frame,lookahead_weight_,road_min_,road_max_,smin_,vmin_);
+      lane_measurement=road;
+      target_point=rcauto_cpp::find_reference_target(
+          road,w,h,target_distance_ratio_);
+      error=road.error;
+      confidence=road.confidence;
+      near_error=road.near_error;
+      far_error=road.far_error;
+      curvature=road.curvature;
+      preview_visibility=road.preview;
+      visible_edge_confidence=road.visible_edge_confidence;
+      visible_edge_side=road.visible_edge_side;
+      edge_only=road.edge_only;
+      if(target_point && confidence>=0.4) {
+        // A farther observed reference anticipates bends sooner.
+        // Keep existing near/far measurements so the controller retains
+        // feedback when a distant segment is momentarily occluded.
+        const double reference_error=std::clamp(
+            (target_point->x-w*.5)/(w*.5),-1.0,1.0);
+        error=std::clamp(.65*error+.35*reference_error,-1.0,1.0);
+        near_error=std::clamp(
+            .80*near_error-.20*reference_error,-1.0,1.0);
+        far_error=std::clamp(
+            .65*far_error-.35*reference_error,-1.0,1.0);
       }
-      if(!left.empty()&&!right.empty()) {
-        auto median=[](std::vector<double>& a) {
-          auto i=a.begin()+static_cast<std::ptrdiff_t>(a.size()/2);
-          std::nth_element(a.begin(),i,a.end());return *i;
+      // Only actual observed paint pixels are marked. Do not draw a
+      // fitted curve through gaps or outside the camera image.
+      if (show_debug_) {
+        const auto draw_edge=[&](const std::vector<cv::Point>& edge,
+                                const cv::Scalar& color) {
+          for(size_t i=1;i<edge.size();++i) {
+            if(std::abs(edge[i].y-edge[i-1].y)>9 ||
+               std::abs(edge[i].x-edge[i-1].x)>12)continue;
+            cv::line(debug,edge[i-1],edge[i],color,2,cv::LINE_AA);
+          }
         };
-        const double l=median(left), r=median(right), width=(r-l)/w;
-        if(width>=road_min_&&width<=road_max_) {
-          error=std::clamp(((l+r)*.5-w*.5)/(w*.5),-1.,1.);
-          confidence=.78;
-        }
+        draw_edge(road.left_edge,cv::Scalar(35,245,40));
+        draw_edge(road.right_edge,cv::Scalar(255,90,5));
+        draw_edge(road.unclassified_edge,cv::Scalar(160,165,165));
+        cv::drawContours(debug,road.center_dashes,-1,
+                         cv::Scalar(0,220,255),2,cv::LINE_AA);
+        // The unique target is drawn after cone avoidance, so Foxglove
+        // never shows conflicting primary and avoidance targets.
       }
     }
+    vision_msgs::msg::Detection2DArray detections;
+    detections.header.stamp=get_clock()->now();
+    detections.header.frame_id="camera_link";
+    const auto cone_candidates=detect_cones_ ?
+        rcauto_cpp::detect_orange_cones(frame) :
+        std::vector<rcauto_cpp::OrangeCone>{};
+    std::vector<rcauto_cpp::OrangeCone> cones;
+    const auto cone_now=std::chrono::steady_clock::now();
+    const bool recent_cone=last_cone_time_ !=
+        std::chrono::steady_clock::time_point{} &&
+        std::chrono::duration<double>(cone_now-last_cone_time_).count()<0.65;
+    for(const auto& candidate:cone_candidates) {
+      const cv::Point2d delta(candidate.box.x+candidate.box.width*0.5 -
+                                  (last_cone_box_.x+last_cone_box_.width*0.5),
+                              candidate.box.y+candidate.box.height*0.5 -
+                                  (last_cone_box_.y+last_cone_box_.height*0.5));
+      const bool consistent=recent_cone &&
+          std::hypot(delta.x/w,delta.y/h)<0.15 &&
+          candidate.box.height>last_cone_box_.height*0.50 &&
+          candidate.box.height<last_cone_box_.height*1.90;
+      if(candidate.score>=0.59 ||
+         (consistent && candidate.score>=0.51)) {
+        cones.push_back(candidate);
+      }
+    }
+    if(!cones.empty()) {
+      last_cone_box_=cones.front().box;
+      last_cone_time_=cone_now;
+    }
+    std_msgs::msg::Bool cone_flag;
+    cone_flag.data=!cones.empty();
+    pub_cone_->publish(cone_flag);
+    for(const auto& cone:cones) {
+      vision_msgs::msg::Detection2D item;
+      item.header=detections.header;
+      item.bbox.center.position.x=cone.box.x+cone.box.width*0.5;
+      item.bbox.center.position.y=cone.box.y+cone.box.height*0.5;
+      item.bbox.size_x=cone.box.width;
+      item.bbox.size_y=cone.box.height;
+      vision_msgs::msg::ObjectHypothesisWithPose hypothesis;
+      hypothesis.hypothesis.class_id="traffic_cone";
+      hypothesis.hypothesis.score=cone.score;
+      item.results.push_back(hypothesis);
+      detections.detections.push_back(item);
+      if (show_debug_) {
+        cv::rectangle(debug,cone.box,cv::Scalar(45,235,45),2,cv::LINE_AA);
+        cv::putText(debug,"CONE",
+            cv::Point(cone.box.x,std::max(17,cone.box.y-5)),
+            cv::FONT_HERSHEY_SIMPLEX,0.6,
+            cv::Scalar(45,235,45),2,cv::LINE_AA);
+      }
+    }
+    const auto avoidance=(avoid_enabled_ && lane_measurement) ?
+        rcauto_cpp::choose_cone_avoidance(
+            *lane_measurement,cones,w,h,avoid_offset_ratio_) :
+        rcauto_cpp::ConeAvoidance{};
+    if(avoidance.active) {
+      // The controller uses vehicle-left-positive errors, while this
+      // visual measurement is still image-right-positive at this point.
+      error=std::clamp(error+avoidance.offset_norm,-1.0,1.0);
+      near_error=std::clamp(near_error-avoidance.offset_norm,-1.0,1.0);
+      far_error=std::clamp(far_error-avoidance.offset_norm,-1.0,1.0);
+      if(target_point) {
+        // One steering target only. Avoidance overrides its horizontal
+        // destination while the lookahead slider controls image depth.
+        target_point->x=avoidance.target.x;
+      }
+    } else if(avoidance.blocked && show_debug_) {
+      cv::putText(debug,"CONE: NO CLEAR PASSAGE",
+                  {std::max(8,w/4),std::max(25,h/3)},
+                  cv::FONT_HERSHEY_SIMPLEX,.58,
+                  cv::Scalar(25,50,255),2,cv::LINE_AA);
+    }
+    if(show_debug_ && target_point) {
+      // Exactly one purple target marker in road mode. No false
+      // trajectory is drawn through an occluding cone.
+      cv::circle(debug,*target_point,10,
+                 cv::Scalar(225,30,230),-1,cv::LINE_AA);
+      cv::circle(debug,*target_point,12,
+                 cv::Scalar(255,255,255),1,cv::LINE_AA);
+
+    }
+    std_msgs::msg::Bool active_msg;
+    active_msg.data=avoidance.active;
+    pub_avoid_active_->publish(active_msg);
+    std_msgs::msg::Bool blocked_msg;
+    blocked_msg.data=avoidance.blocked;
+    pub_avoid_blocked_->publish(blocked_msg);
+    std_msgs::msg::Float32 offset_msg;
+    offset_msg.data=static_cast<float>(avoidance.offset_norm);
+    pub_avoid_offset_->publish(offset_msg);
     // Image +X points right, whereas ROS Ackermann +steering turns left.
     // Convert pixel displacement into vehicle-left-positive steering error.
     error = -error;
@@ -446,35 +790,89 @@ class VisionNode final : public rclcpp::Node {
     error = filtered_error_;
     std_msgs::msg::Float32 err;err.data=static_cast<float>(error);pub_error_->publish(err);
     std_msgs::msg::Float32 conf;conf.data=static_cast<float>(confidence);pub_conf_->publish(conf);
+    send(pub_edge_conf_,visible_edge_confidence);
+    std_msgs::msg::Int32 boundary_side;
+    boundary_side.data=visible_edge_side;
+    pub_edge_side_->publish(boundary_side);
+    std_msgs::msg::Bool recovery;
+    recovery.data=edge_only;
+    pub_edge_only_->publish(recovery);
     std_msgs::msg::Bool cross;cross.data=intersection;pub_cross_->publish(cross);
-    if (show_debug_ && pub_debug_->get_subscription_count()>0) {
-      cv::line(debug,cv::Point(w/2,y0),cv::Point(w/2,h),cv::Scalar(200,200,200),1);
-      cv::line(debug,cv::Point(0,cvRound(h*0.34)),cv::Point(w,cvRound(h*0.34)),
-               cv::Scalar(60,130,200),1);
-      cv::putText(debug,"lane="+std::to_string(error)+" conf="+std::to_string(confidence),
-                  cv::Point(8,24),cv::FONT_HERSHEY_SIMPLEX,.5,cv::Scalar(0,255,0),1);
-      cv::putText(debug,"near="+std::to_string(near_error)+" far="+std::to_string(far_error)+
-                  " curve="+std::to_string(curvature),
-                  cv::Point(8,46),cv::FONT_HERSHEY_SIMPLEX,.46,cv::Scalar(20,210,245),1);
-      std_msgs::msg::Header header;header.stamp=get_clock()->now();header.frame_id="camera_link";
-      pub_debug_->publish(*cv_bridge::CvImage(header,"bgr8",debug).toImageMsg());
+    pub_cone_boxes_->publish(detections);
+    if(show_debug_ &&
+       (pub_debug_->get_subscription_count()>0 ||
+        pub_jpeg_->get_subscription_count()>0 ||
+        pub_eco_jpeg_->get_subscription_count()>0)) {
+      std_msgs::msg::Header header;
+      header.stamp=detections.header.stamp;
+      header.frame_id="camera_link";
+      if(pub_debug_->get_subscription_count()>0)
+        pub_debug_->publish(
+            *cv_bridge::CvImage(header,"bgr8",debug).toImageMsg());
+      if(pub_jpeg_->get_subscription_count()>0) {
+        std::vector<unsigned char> encoded;
+        if(cv::imencode(".jpg",debug,encoded,
+                        {cv::IMWRITE_JPEG_QUALITY,jpeg_quality_})) {
+          sensor_msgs::msg::CompressedImage image;
+          image.header=header;
+          image.format="jpeg";
+          image.data=std::move(encoded);
+          pub_jpeg_->publish(image);
+        }
+      }
+      // Preserve image dimensions and frame rate on constrained links.
+      // Only the JPEG encoding bitrate differs from the normal stream.
+      if(pub_eco_jpeg_->get_subscription_count()>0) {
+        constexpr int kBandwidthJpegQuality=48;
+        std::vector<unsigned char> encoded;
+        if(cv::imencode(".jpg",debug,encoded,
+                        {cv::IMWRITE_JPEG_QUALITY,kBandwidthJpegQuality})) {
+          sensor_msgs::msg::CompressedImage image;
+          image.header=header;
+          image.format="jpeg";
+          image.data=std::move(encoded);
+          pub_eco_jpeg_->publish(image);
+        }
+      }
     }
   }
   cv::VideoCapture camera_;
-  std::string style_,color_;
-  bool pending_{false},show_debug_{true},hardware_mode_{false};
+  std::string style_,color_,camera_preference_,active_device_,camera_state_;
+  bool camera_connected_{false};
+  int failed_reads_{0};
+  std::chrono::steady_clock::time_point last_camera_attempt_{};
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_camera_status_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_camera_connected_;
+  bool pending_{false},show_debug_{true},hardware_mode_{false},
+       detect_cones_{true},avoid_enabled_{true};
+  double avoid_offset_ratio_{0.50};
+  int jpeg_quality_{72};
+  int capture_width_{1280},capture_height_{720},output_width_{1080};
   int hmin_{15},hmax_{42},smin_{70},vmin_{80};
-  double road_min_{.22},road_max_{.89},lookahead_weight_{.72};
+  double road_min_{.22},road_max_{.89},lookahead_weight_{.72},
+      target_distance_ratio_{.55};
   double smoothing_alpha_{.48},filtered_error_{0.0};
   bool have_filtered_error_{false};
   float last_mark_x_{320.0F};
+  cv::Rect last_cone_box_;
+  std::chrono::steady_clock::time_point last_cone_time_{};
   double edge_half_width_px_{210.0};
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr callback_handle_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr sub_image_;
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr pub_error_,pub_raw_error_,pub_conf_,
       pub_near_,pub_far_,pub_curvature_,pub_preview_;
+  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr pub_edge_conf_;
+  rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr pub_edge_side_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_edge_only_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_cross_;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr pub_debug_;
+  rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr
+      pub_jpeg_,pub_raw_jpeg_,pub_eco_jpeg_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr
+      pub_avoid_active_,pub_avoid_blocked_;
+  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr pub_avoid_offset_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_cone_;
+  rclcpp::Publisher<vision_msgs::msg::Detection2DArray>::SharedPtr pub_cone_boxes_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 int main(int argc,char** argv) {

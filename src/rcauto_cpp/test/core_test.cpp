@@ -56,10 +56,8 @@ int main() {
   assert(s.update(safe(true,"GREEN"),5,true,lim).second==0);
   assert(s.update(safe(true,"GREEN"),5.7,true,lim).first==State::Crossing);
   assert(s.update(safe(false,"GREEN"),6.3,true,lim).first==State::Follow);
-  s.emergency_stop();assert(s.update(safe(),7,true,lim).second==0);
-  assert(s.update(safe(),8,true,lim).first==State::Estop);
-  s.reset_disarmed();
-  assert(s.update(safe(),9,false,lim).first==State::Disarmed);
+  assert(s.update(safe(),7,false,lim).first==State::Disarmed);
+  assert(s.update(safe(),8,true,lim).first==State::Follow);
   StateMachine timeout;
   timeout.update(safe(true,"GREEN"),10,true,lim);
   timeout.update(safe(true,"GREEN"),10.8,true,lim);

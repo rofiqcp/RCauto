@@ -74,62 +74,6 @@
       "defaultExpanded": true,
       "foxglovePanelTitle": "Distance Sensor"
     },
-    "Publish!rcacppestop": {
-      "topicName": "/rcauto/operator/estop",
-      "datatype": "std_msgs/msg/Bool",
-      "value": "{\"data\":true}",
-      "buttonText": "EMERGENCY STOP",
-      "buttonColor": "#c01e21",
-      "buttonTooltip": "Hardware must remain disarmed for tuning/mode changes"
-    },
-    "Publish!rcacppdisarm": {
-      "topicName": "/rcauto/operator/enable",
-      "datatype": "std_msgs/msg/Bool",
-      "value": "{\"data\":false}",
-      "buttonText": "DISARM",
-      "buttonColor": "#d07b0e",
-      "buttonTooltip": "Hardware must remain disarmed for tuning/mode changes"
-    },
-    "Publish!rcacppenable": {
-      "topicName": "/rcauto/operator/enable",
-      "datatype": "std_msgs/msg/Bool",
-      "value": "{\"data\":true}",
-      "buttonText": "ARM - test only",
-      "buttonColor": "#666f80",
-      "buttonTooltip": "Hardware must remain disarmed for tuning/mode changes"
-    },
-    "Publish!rcacppreset": {
-      "topicName": "/rcauto/operator/reset_estop",
-      "datatype": "std_msgs/msg/Bool",
-      "value": "{\"data\":true}",
-      "buttonText": "RESET E-STOP",
-      "buttonColor": "#777777",
-      "buttonTooltip": "Hardware must remain disarmed for tuning/mode changes"
-    },
-    "Publish!rcacpppid": {
-      "topicName": "/rcauto/operator/mode",
-      "datatype": "std_msgs/msg/String",
-      "value": "{\"data\":\"pid\"}",
-      "buttonText": "PID",
-      "buttonColor": "#27689e",
-      "buttonTooltip": "Hardware must remain disarmed for tuning/mode changes"
-    },
-    "Publish!rcacppfuzzy": {
-      "topicName": "/rcauto/operator/mode",
-      "datatype": "std_msgs/msg/String",
-      "value": "{\"data\":\"fuzzy\"}",
-      "buttonText": "FUZZY",
-      "buttonColor": "#27689e",
-      "buttonTooltip": "Hardware must remain disarmed for tuning/mode changes"
-    },
-    "Publish!rcacppai": {
-      "topicName": "/rcauto/operator/mode",
-      "datatype": "std_msgs/msg/String",
-      "value": "{\"data\":\"ai\"}",
-      "buttonText": "AI",
-      "buttonColor": "#27689e",
-      "buttonTooltip": "Hardware must remain disarmed for tuning/mode changes"
-    },
     "Image!rcacppworld": {
       "imageMode": {
         "imageTopic": "/rcauto/arena/overview",
@@ -316,71 +260,36 @@
     },
     "second": {
       "direction": "column",
-      "splitPercentage": 32,
-      "first": {
+      "splitPercentage": 65,
+      "first": "Parameters!rcacppparams",
+      "second": {
         "direction": "column",
-        "splitPercentage": 60,
+        "splitPercentage": 55,
         "first": {
           "direction": "column",
-          "splitPercentage": 50,
-          "first": {
-            "direction": "row",
-            "splitPercentage": 50,
-            "first": "Publish!rcacppestop",
-            "second": "Publish!rcacppdisarm"
-          },
+          "splitPercentage": 58,
+          "first": "RawMessages!rcacppstatus",
           "second": {
             "direction": "row",
             "splitPercentage": 50,
-            "first": "Publish!rcacppreset",
-            "second": "Publish!rcacppenable"
+            "first": "RawMessages!rcacppsignal",
+            "second": "RawMessages!rcacpphazard"
           }
         },
         "second": {
-          "direction": "row",
-          "splitPercentage": 35,
-          "first": "Publish!rcacpppid",
+          "direction": "column",
+          "splitPercentage": 45,
+          "first": {
+            "direction": "row",
+            "splitPercentage": 50,
+            "first": "RawMessages!rcacppdrive",
+            "second": "RawMessages!rcacppact"
+          },
           "second": {
             "direction": "row",
             "splitPercentage": 50,
-            "first": "Publish!rcacppfuzzy",
-            "second": "Publish!rcacppai"
-          }
-        }
-      },
-      "second": {
-        "direction": "column",
-        "splitPercentage": 65,
-        "first": "Parameters!rcacppparams",
-        "second": {
-          "direction": "column",
-          "splitPercentage": 55,
-          "first": {
-            "direction": "column",
-            "splitPercentage": 58,
-            "first": "RawMessages!rcacppstatus",
-            "second": {
-              "direction": "row",
-              "splitPercentage": 50,
-              "first": "RawMessages!rcacppsignal",
-              "second": "RawMessages!rcacpphazard"
-            }
-          },
-          "second": {
-            "direction": "column",
-            "splitPercentage": 45,
-            "first": {
-              "direction": "row",
-              "splitPercentage": 50,
-              "first": "RawMessages!rcacppdrive",
-              "second": "RawMessages!rcacppact"
-            },
-            "second": {
-              "direction": "row",
-              "splitPercentage": 50,
-              "first": "RawMessages!rcacppsteer",
-              "second": "RawMessages!rcacppesc"
-            }
+            "first": "RawMessages!rcacppsteer",
+            "second": "RawMessages!rcacppesc"
           }
         }
       }

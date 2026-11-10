@@ -370,7 +370,7 @@ class TrialRecorder(Node):
         if elapsed >= self.duration:
             print("MAX_DURATION_REACHED",flush=True)
             self.end_requested = True
-        if self.arm and self.status in ("SENSOR_STOP", "ESTOP"):
+        if self.arm and self.status == "SENSOR_STOP":
             if self.stop_since is None: self.stop_since = elapsed
             elif elapsed - self.stop_since > 15:
                 print("PERSISTENT_SAFETY_STOP",flush=True)

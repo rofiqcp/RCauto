@@ -12,17 +12,19 @@ rcauto_cpp_controller:
         rate_weight: 0.25
         max_output: 0.85
       ai:
-        model_path: ""
+        model_path: ''
         output_gain: 1.0
       speed_pid:
-        kp: 1.9
-        ki: 0.0
+        kp: 3.55
+        ki: 0.03
         kd: 0.06
     drive:
       max_steering_rad: 0.35
+      steering_scale: 1.0
       max_speed_mps: 0.18
       follow_speed_mps: 0.18
       corner_speed_scale: 1.0
+      cone_speed_scale: 0.5
       steering_deadband_norm: 0.035
       steering_slew_rad_s: 2.8
       accel_mps2: 0.48
@@ -35,24 +37,33 @@ rcauto_cpp_controller:
       cross_timeout_s: 3.0
       require_range: false
       hardware_mode: false
-      range_stop_m: 0.50
+      range_stop_m: 0.5
       range_stale_s: 0.4
-      allow_live_tuning: false
 rcauto_cpp_vision:
   ros__parameters:
     vision:
       hardware_mode: false
-      source: ros
-      lane_style: tape
+      source: usb
+      lane_style: road
       line_color: yellow
-      camera_index: 0
+      camera_device: auto
+      camera_capture_width: 1280
+      camera_capture_height: 720
+      camera_output_width: 800
       yellow_h_min: 15
       yellow_h_max: 42
       min_saturation: 70
-      min_brightness: 80
+      min_brightness: 88
       road_min_width_ratio: 0.22
       road_max_width_ratio: 0.89
+      lookahead_weight: 0.78
+      target_distance_ratio: 0.45
+      error_smoothing_alpha: 0.48
       publish_debug: true
+      detect_traffic_cones: true
+      cone_avoidance_enabled: true
+      cone_avoidance_offset_ratio: 0.5
+      jpeg_quality: 60
       fps: 15.0
 rcauto_cpp_perception:
   ros__parameters:
@@ -68,7 +79,7 @@ rcauto_cpp_actuator:
   ros__parameters:
     actuator:
       hardware_enabled: false
-      live_ack: ""
+      live_ack: ''
       backend: pca9685
       i2c_device: /dev/i2c-1
       i2c_address: 64

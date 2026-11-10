@@ -43,9 +43,11 @@ class ControllerNode final : public rclcpp::Node {
     declare_parameter("controller.speed_pid.kd", 0.06);
     declare_parameter("controller.fuzzy.speed_aggressiveness", 1.0);
     declare_parameter("drive.max_steering_rad", 0.35);
+    declare_parameter("drive.steering_scale", 1.0);
     declare_parameter("drive.max_speed_mps", 0.18);
     declare_parameter("drive.follow_speed_mps", 0.18);
     declare_parameter("drive.corner_speed_scale", 1.0);
+    declare_parameter("drive.cone_speed_scale", 0.50);
     declare_parameter("drive.steering_deadband_norm", 0.035);
     declare_parameter("drive.steering_slew_rad_s", 2.8);
     declare_parameter("drive.accel_mps2", 0.48);
@@ -59,7 +61,7 @@ class ControllerNode final : public rclcpp::Node {
     declare_parameter("safety.hardware_mode", false);
     declare_parameter("safety.range_stop_m", 0.50);
     declare_parameter("safety.range_stale_s", 0.4);
-    declare_parameter("safety.allow_live_tuning", false);
+    declare_parameter("safety.preview_only", false);
     // Parameter overrides from YAML are declared before callbacks exist.
     // Reject unsafe startup configuration before creating any publishers.
     const auto startup_double = [this](const char* name) {
@@ -91,7 +93,9 @@ class ControllerNode final : public rclcpp::Node {
       }
     };
     startup_range("drive.max_steering_rad", 0.05, 0.75);
+    startup_range("drive.steering_scale", 0.20, 1.50);
     startup_range("drive.corner_speed_scale", 0.4, 1.0);
+    startup_range("drive.cone_speed_scale", 0.2, 1.0);
     startup_range("controller.fuzzy.error_weight", 0.0, 2.0);
     startup_range("controller.fuzzy.rate_weight", 0.0, 2.0);
     startup_range("controller.fuzzy.max_output", std::numeric_limits<double>::min(), 1.0);
@@ -111,9 +115,11 @@ class ControllerNode final : public rclcpp::Node {
     if (startup_mode != "pid" && startup_mode != "fuzzy" && startup_mode != "ai") {
       throw std::invalid_argument("Unsupported startup controller mode");
     }
+    if (get_parameter("safety.preview_only").as_bool() &&
+        get_parameter("safety.hardware_mode").as_bool())
+      throw std::invalid_argument("Preview-only forbids hardware output");
     if (get_parameter("safety.hardware_mode").as_bool() &&
-        (get_parameter("safety.allow_live_tuning").as_bool() ||
-         !get_parameter("safety.require_range").as_bool())) {
+        !get_parameter("safety.require_range").as_bool()) {
       throw std::invalid_argument("Unsafe startup hardware safety configuration");
     }
     refresh();
@@ -143,6 +149,16 @@ class ControllerNode final : public rclcpp::Node {
       [this](std_msgs::msg::Float32::ConstSharedPtr m) {
         if (std::isfinite(m->data)) preview_visibility_ = m->data;
       });
+    sub_avoid_active_ = create_subscription<std_msgs::msg::Bool>(
+        "/rcauto/vision/avoidance_active", qos,
+        [this](std_msgs::msg::Bool::ConstSharedPtr m) {
+          avoidance_active_=m->data;stamp_avoid_=Steady::now();
+        });
+    sub_avoid_blocked_ = create_subscription<std_msgs::msg::Bool>(
+        "/rcauto/vision/avoidance_blocked", qos,
+        [this](std_msgs::msg::Bool::ConstSharedPtr m) {
+          avoidance_blocked_=m->data;stamp_avoid_=Steady::now();
+        });
     sub_conf_ = create_subscription<std_msgs::msg::Float32>("/rcauto/lane_confidence", qos,
       [this](std_msgs::msg::Float32::ConstSharedPtr m) {
         observation_.confidence = m->data; stamp_conf_ = Steady::now();
@@ -169,24 +185,15 @@ class ControllerNode final : public rclcpp::Node {
       });
     sub_enable_ = create_subscription<std_msgs::msg::Bool>("/rcauto/operator/enable", qos,
       [this](std_msgs::msg::Bool::ConstSharedPtr m) {
-        if (m->data && !estop_) armed_ = true;
-        else {
-          armed_ = false; pid_.reset(); fuzzy_.reset();
-          speed_pid_.reset(); fuzzy_throttle_.reset();
-          commanded_speed_ = last_steering_norm_ = 0;
+        if (m->data) {
+          stamp_operator_ = Steady::now();
+          armed_ = true;
+        } else {
+          disarm();
         }
-      });
-    sub_estop_ = create_subscription<std_msgs::msg::Bool>("/rcauto/operator/estop", qos,
-      [this](std_msgs::msg::Bool::ConstSharedPtr m) {
-        if (m->data) { estop_ = true; armed_ = false; fsm_.emergency_stop(); }
-      });
-    sub_reset_ = create_subscription<std_msgs::msg::Bool>("/rcauto/operator/reset_estop", qos,
-      [this](std_msgs::msg::Bool::ConstSharedPtr m) {
-        if (m->data && !armed_) { estop_ = false; fsm_.reset_disarmed(); }
       });
     sub_mode_ = create_subscription<std_msgs::msg::String>("/rcauto/operator/mode", qos,
       [this](std_msgs::msg::String::ConstSharedPtr m) {
-        if (armed_) { RCLCPP_WARN(get_logger(), "Disarm before changing mode"); return; }
         if (m->data != "pid" && m->data != "fuzzy" && m->data != "ai") return;
         if (m->data == "ai" && !ai_ready_) {
           RCLCPP_WARN(get_logger(), "AI ONNX not loaded; rejecting mode change");
@@ -196,6 +203,8 @@ class ControllerNode final : public rclcpp::Node {
       });
     pub_drive_ = create_publisher<ackermann_msgs::msg::AckermannDriveStamped>("/rcauto/drive", qos);
     pub_state_ = create_publisher<std_msgs::msg::String>("/rcauto/status", qos);
+    pub_mode_ = create_publisher<std_msgs::msg::String>(
+        "/rcauto/control/mode", qos);
     pub_steer_ = create_publisher<std_msgs::msg::Float32>("/rcauto/tuning/steer_norm", qos);
     pub_speed_factor_ = create_publisher<std_msgs::msg::Float32>("/rcauto/tuning/speed_factor", qos);
     pub_risk_ = create_publisher<std_msgs::msg::Float32>("/rcauto/tuning/visual_risk", qos);
@@ -205,6 +214,15 @@ class ControllerNode final : public rclcpp::Node {
     RCLCPP_INFO(get_logger(), "C++ autonomy initialized; DISARMED, mode=%s", mode_.c_str());
   }
  private:
+  void disarm() {
+    armed_ = false;
+    pid_.reset();
+    fuzzy_.reset();
+    speed_pid_.reset();
+    fuzzy_throttle_.reset();
+    commanded_speed_ = last_steering_norm_ = 0.0;
+  }
+
   rcl_interfaces::msg::SetParametersResult on_parameters(
       const std::vector<rclcpp::Parameter>& proposed) {
     rcl_interfaces::msg::SetParametersResult result;
@@ -231,25 +249,15 @@ class ControllerNode final : public rclcpp::Node {
         result.reason = "Parameter type change rejected: " + name;
         return result;
       }
-      // The UI displays all parameters; edits while armed require an explicit safe protocol.
-      if (name == "safety.hardware_mode" || (hardware_mode_ && name == "safety.require_range")) {
+      // Live tuning is bounded by the parameter validators below.
+      if (name == "safety.hardware_mode" || name == "safety.preview_only" ||
+          (hardware_mode_ && name == "safety.require_range")) {
         result.successful = false; result.reason = "Hardware safety mode is read-only";
         return result;
       }
-      if (hardware_mode_ && name == "safety.allow_live_tuning") {
-        result.successful = false; result.reason = "Cannot change live tuning in hardware mode";
-        return result;
-      }
-      if (armed_ && !allow_live_tuning_) {
-        result.successful = false; result.reason = "DISARM before tuning parameters";
-        return result;
-      }
-      if (armed_ && (name.rfind("drive.", 0) == 0 ||
-                    name.rfind("safety.", 0) == 0 ||
-                    name == "controller.mode" ||
-                    name == "controller.ai.model_path")) {
+      if (armed_ && name.rfind("safety.", 0) == 0) {
         result.successful = false;
-        result.reason = "Safety, mode, motor limits and AI path are immutable while armed";
+        result.reason = "Sensor safety parameters require STOP";
         return result;
       }
       try {
@@ -288,9 +296,15 @@ class ControllerNode final : public rclcpp::Node {
             if (val < 0.05 || val > 3.0) throw std::invalid_argument("invalid acceleration");
           } else if (name == "drive.decel_mps2") {
             if (val < 0.1 || val > 5.0) throw std::invalid_argument("invalid deceleration");
+          } else if (name == "drive.cone_speed_scale") {
+            if (val < 0.2 || val > 1.0)
+              throw std::invalid_argument("cone speed scale must be 0.2..1.0");
           } else if (name == "drive.corner_speed_scale") {
             if (val < 0.4 || val > 1.0)
               throw std::invalid_argument("corner speed scale outside [0.4,1]");
+          } else if (name == "drive.steering_scale") {
+            if(val<0.20 || val>1.50)
+              throw std::invalid_argument("steering scale must be 0.2..1.5");
           } else if (name == "drive.max_steering_rad") {
             if (val < 0.05 || val > 0.75) throw std::invalid_argument("unsafe steering angle");
           } else if (name.find("speed_mps") != std::string::npos) {
@@ -332,15 +346,22 @@ class ControllerNode final : public rclcpp::Node {
   }
 
   void refresh() {
-    mode_ = get_parameter("controller.mode").as_string();
+    const auto requested_mode = get_parameter("controller.mode").as_string();
+    if (mode_ != requested_mode) {
+      pid_.reset(); fuzzy_.reset(); speed_pid_.reset(); fuzzy_throttle_.reset();
+      have_error_ = false;
+    }
+    mode_ = requested_mode;
     ai_gain_ = get_parameter("controller.ai.output_gain").as_double();
     steer_deadband_ = get_parameter("drive.steering_deadband_norm").as_double();
     steer_slew_ = get_parameter("drive.steering_slew_rad_s").as_double();
     acceleration_ = get_parameter("drive.accel_mps2").as_double();
     deceleration_ = get_parameter("drive.decel_mps2").as_double();
     max_steer_ = get_parameter("drive.max_steering_rad").as_double();
+    steering_scale_=get_parameter("drive.steering_scale").as_double();
     max_speed_ = get_parameter("drive.max_speed_mps").as_double();
     corner_speed_scale_ = get_parameter("drive.corner_speed_scale").as_double();
+    cone_speed_scale_ = get_parameter("drive.cone_speed_scale").as_double();
     limits_.normal_speed = get_parameter("drive.follow_speed_mps").as_double();
     limits_.crossing_speed = get_parameter("drive.cross_speed_mps").as_double();
     limits_.stale_s = get_parameter("safety.stale_s").as_double();
@@ -348,10 +369,10 @@ class ControllerNode final : public rclcpp::Node {
     limits_.green_hold_s = get_parameter("safety.green_hold_s").as_double();
     limits_.cross_timeout_s = get_parameter("safety.cross_timeout_s").as_double();
     hardware_mode_ = get_parameter("safety.hardware_mode").as_bool();
+    preview_only_ = get_parameter("safety.preview_only").as_bool();
     require_range_ = get_parameter("safety.require_range").as_bool() || hardware_mode_;
     stop_range_m_ = get_parameter("safety.range_stop_m").as_double();
     range_stale_s_ = get_parameter("safety.range_stale_s").as_double();
-    allow_live_tuning_ = get_parameter("safety.allow_live_tuning").as_bool();
     rcauto::Gains gains;
     gains.kp = get_parameter("controller.pid.kp").as_double();
     gains.ki = get_parameter("controller.pid.ki").as_double();
@@ -415,6 +436,10 @@ class ControllerNode final : public rclcpp::Node {
   }
 
   void tick() {
+    if (armed_ && age(stamp_operator_) > 1.25) {
+      disarm();
+      RCLCPP_WARN(get_logger(), "Operator heartbeat timeout: output STOP");
+    }
     if (refresh_pending_) {
       refresh_pending_ = false;
       refresh();
@@ -427,12 +452,29 @@ class ControllerNode final : public rclcpp::Node {
     observation_.lane_age = std::max({age(stamp_lane_), age(stamp_conf_), age(stamp_cross_)});
     observation_.hazard_age = age(stamp_hazard_);
     observation_.signal_age = age(stamp_signal_);
+    if (preview_only_) {
+      // Preview displays controller output for tuning, without launching
+      // a motor actuator or falsely claiming obstacle-sensor coverage.
+      observation_.hazard = false;
+      observation_.hazard_age = 0.0;
+      observation_.signal = "GREEN";
+      observation_.signal_age = 0.0;
+    }
     const bool range_stale = require_range_ &&
                 !rcauto::range_sample_healthy(age(stamp_range_), range_stale_s_, range_valid_,
                                               range_min_m_, range_max_m_, stop_range_m_);
     const bool range_obstacle = require_range_ && !range_stale && range_m_ < stop_range_m_;
     // Recompute each cycle: a cleared Range obstacle must not persist as a phantom hazard.
-    observation_.hazard = rcauto::combined_hazard(last_vision_hazard_, range_obstacle);
+    if (!preview_only_)
+      observation_.hazard = rcauto::combined_hazard(last_vision_hazard_, range_obstacle);
+    const bool avoidance_fresh=age(stamp_avoid_)<limits_.stale_s;
+    const bool cone_avoiding=avoidance_fresh && avoidance_active_;
+    const bool cone_blocked=avoidance_fresh && avoidance_blocked_;
+    if(cone_blocked) {
+      // No verified clearance: refuse motor movement even in preview.
+      observation_.hazard=true;
+      observation_.hazard_age=0.0;
+    }
     if (range_stale) observation_.hazard_age = std::numeric_limits<double>::infinity();
     auto [state, speed] = fsm_.update(observation_,
       std::chrono::duration<double>(now.time_since_epoch()).count(), armed_, limits_);
@@ -484,10 +526,14 @@ class ControllerNode final : public rclcpp::Node {
         throttle_factor = std::min(throttle_factor, 0.50);
       throttle_factor = std::clamp(throttle_factor, corner_speed_scale_ * 0.65, 1.0);
       target_speed = std::min(speed, max_speed_) * throttle_factor;
+      if(cone_avoiding)target_speed*=cone_speed_scale_;
       // Tiny visual bends should not generate oscillating servo commands.
       if (std::abs(fused_error) < steer_deadband_ &&
           std::abs(curvature) < steer_deadband_ * 1.7)
         steering = 0.0;
+      // Apply steering gain independently of controller choice,
+      // then obey the configured physical angle and slew ceiling.
+      steering=std::clamp(steering*steering_scale_,-1.0,1.0);
       steering = std::clamp(steering,
           last_steering_norm_ - steer_slew_ * dt / max_steer_,
           last_steering_norm_ + steer_slew_ * dt / max_steer_);
@@ -520,11 +566,18 @@ class ControllerNode final : public rclcpp::Node {
     emit(pub_preview_speed_, commanded_speed_);
     std_msgs::msg::String status;
     std::ostringstream s;
-    s << rcauto::state_name(state) << " | mode=" << mode_ << " | armed=" << armed_
+    s << (preview_only_ ? "PREVIEW " : "") << rcauto::state_name(state)
+      << " | mode=" << mode_ << " | armed=" << armed_
       << " | error=" << observation_.error << " | hazard=" << observation_.hazard
-      << " | lane_age=" << observation_.lane_age << " | range_m=" << range_m_;
+      << " | lane_age=" << observation_.lane_age
+      << " | cone_avoid=" << cone_avoiding
+      << " | cone_blocked=" << cone_blocked
+      << " | range_m=" << range_m_;
     status.data = s.str();
     pub_state_->publish(status);
+    std_msgs::msg::String mode_message;
+    mode_message.data=mode_;
+    pub_mode_->publish(mode_message);
     if (state != last_state_) {
       RCLCPP_INFO(get_logger(), "%s", status.data.c_str());
       last_state_ = state;
@@ -540,30 +593,33 @@ class ControllerNode final : public rclcpp::Node {
   rcauto::Limits limits_;
   rcauto::State last_state_{rcauto::State::Disarmed};
   cv::dnn::Net ai_net_;
-  bool ai_ready_{false}, armed_{false}, estop_{false}, have_error_{false},
+  bool ai_ready_{false}, armed_{false}, have_error_{false},
        refresh_pending_{false}, require_range_{false}, hardware_mode_{false},
-       allow_live_tuning_{false},
-       range_valid_{false}, last_vision_hazard_{true};
+       preview_only_{false},
+       range_valid_{false}, last_vision_hazard_{true},
+       avoidance_active_{false}, avoidance_blocked_{false};
   double prev_error_{0}, range_m_{std::numeric_limits<double>::quiet_NaN()},
     range_min_m_{std::numeric_limits<double>::quiet_NaN()},
     range_max_m_{std::numeric_limits<double>::quiet_NaN()},
-    max_steer_{0.35}, max_speed_{0.18}, stop_range_m_{0.5}, range_stale_s_{0.4},
-    ai_gain_{1.0}, corner_speed_scale_{1.0}, commanded_speed_{0.0},
+    max_steer_{0.35}, steering_scale_{1.0}, max_speed_{0.18}, stop_range_m_{0.5}, range_stale_s_{0.4},
+    ai_gain_{1.0}, corner_speed_scale_{1.0}, cone_speed_scale_{0.50},
+    commanded_speed_{0.0},
     last_steering_norm_{0.0}, steer_deadband_{0.035}, steer_slew_{2.8},
     acceleration_{0.48}, deceleration_{1.1},
     near_error_{0.0}, far_error_{0.0}, curvature_{0.0}, preview_visibility_{0.0};
   std::string mode_{"pid"}, last_model_;
   Steady::time_point stamp_lane_{}, stamp_conf_{}, stamp_cross_{}, stamp_hazard_{},
-                     stamp_signal_{}, stamp_range_{}, stamp_preview_{}, last_tick_{};
+                     stamp_signal_{}, stamp_range_{}, stamp_preview_{},
+                     stamp_avoid_{}, stamp_operator_{}, last_tick_{};
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr cb_handle_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr
       sub_lane_, sub_conf_, sub_near_, sub_far_, sub_curvature_, sub_preview_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_cross_, sub_hazard_,
-    sub_enable_, sub_estop_, sub_reset_;
+    sub_enable_, sub_avoid_active_,sub_avoid_blocked_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_light_, sub_mode_;
   rclcpp::Subscription<sensor_msgs::msg::Range>::SharedPtr sub_range_;
   rclcpp::Publisher<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr pub_drive_;
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_state_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_state_,pub_mode_;
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr
       pub_steer_, pub_speed_factor_, pub_risk_, pub_preview_speed_;
   rclcpp::TimerBase::SharedPtr timer_;

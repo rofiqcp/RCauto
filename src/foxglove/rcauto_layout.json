@@ -1,210 +1,58 @@
 {
   "configById": {
-    "Image!rca001": {
-      "imageMode": {
-        "imageTopic": "/rcauto/camera/annotated",
-        "calibrationTopic": ""
-      },
-      "foxglovePanelTitle": "Camera + Lane"
-    },
-    "Plot!rca002": {
+    "rcauto-control.control!4hbnzo5": {},
+    "rcauto-control.camera!2l80fhi": {},
+    "Plot!41ruiqq": {
       "paths": [
         {
+          "timestampMethod": "receiveTime",
           "value": "/rcauto/lane_error.data",
-          "label": "Lane offset",
           "enabled": true,
-          "timestampMethod": "receiveTime"
+          "color": "#4e98e2",
+          "id": "0a2e10d6-0da0-47af-b024-c0a25eb93f71",
+          "label": "Error jalur"
         },
         {
+          "timestampMethod": "receiveTime",
           "value": "/rcauto/lane_confidence.data",
-          "label": "Confidence",
           "enabled": true,
-          "timestampMethod": "receiveTime"
+          "color": "#f5774d",
+          "id": "fdaf0bf5-f21d-47dc-a53e-ce85148ba74f",
+          "label": "Keyakinan kamera"
         },
         {
-          "value": "/rcauto/drive.drive.steering_angle",
-          "label": "Steering (rad)",
+          "timestampMethod": "receiveTime",
+          "value": "/rcauto/tuning/steer_norm.data",
           "enabled": true,
-          "timestampMethod": "receiveTime"
+          "color": "#f7df71",
+          "id": "1002d066-ae81-4737-9f7e-1030ce8e0e4b",
+          "label": "Kemudi normalisasi"
         },
         {
-          "value": "/rcauto/drive.drive.speed",
-          "label": "Speed (m/s)",
+          "timestampMethod": "receiveTime",
+          "value": "/rcauto/tuning/speed_command_mps.data",
           "enabled": true,
-          "timestampMethod": "receiveTime"
+          "color": "#5cd6a9",
+          "id": "c5c59b26-ccc4-47c5-adbf-0c0db70cdad4",
+          "label": "Target kecepatan (m/s)"
         }
       ],
-      "xAxisVal": "timestamp",
-      "timeRange": "latest",
-      "timeWindowMode": "sliding",
-      "followingViewWidth": 30,
-      "foxglovePanelTitle": "Control Diagnostics"
-    },
-    "RawMessages!rca003": {
-      "topicPath": "/rcauto/status",
-      "defaultExpanded": true,
-      "foxglovePanelTitle": "FSM"
-    },
-    "RawMessages!rca004": {
-      "topicPath": "/rcauto/actuator_status",
-      "defaultExpanded": true,
-      "foxglovePanelTitle": "ESC & PWM"
-    },
-    "RawMessages!rca005": {
-      "topicPath": "/rcauto/signal",
-      "defaultExpanded": true,
-      "foxglovePanelTitle": "Traffic Light"
-    },
-    "RawMessages!rca006": {
-      "topicPath": "/rcauto/hazard",
-      "defaultExpanded": true,
-      "foxglovePanelTitle": "Obstacle"
-    },
-    "RawMessages!rca007": {
-      "topicPath": "/rcauto/intersection",
-      "defaultExpanded": true,
-      "foxglovePanelTitle": "Intersection"
-    },
-    "Publish!rcaestop": {
-      "topicName": "/rcauto/operator/estop",
-      "datatype": "std_msgs/msg/Bool",
-      "value": "{\"data\":true}",
-      "buttonText": "EMERGENCY STOP",
-      "buttonTooltip": "Bench verification required for live motor control",
-      "buttonColor": "#b42318",
-      "advancedView": false,
-      "foxglovePanelTitle": "EMERGENCY STOP"
-    },
-    "Publish!rcadisarm": {
-      "topicName": "/rcauto/operator/enable",
-      "datatype": "std_msgs/msg/Bool",
-      "value": "{\"data\":false}",
-      "buttonText": "DISARM",
-      "buttonTooltip": "Bench verification required for live motor control",
-      "buttonColor": "#e07b00",
-      "advancedView": false,
-      "foxglovePanelTitle": "DISARM"
-    },
-    "Publish!rcaenable": {
-      "topicName": "/rcauto/operator/enable",
-      "datatype": "std_msgs/msg/Bool",
-      "value": "{\"data\":true}",
-      "buttonText": "ARM (bench only)",
-      "buttonTooltip": "Bench verification required for live motor control",
-      "buttonColor": "#6f7c8e",
-      "advancedView": true,
-      "foxglovePanelTitle": "ARM (bench only)"
-    },
-    "Publish!rcapid": {
-      "topicName": "/rcauto/operator/mode",
-      "datatype": "std_msgs/msg/String",
-      "value": "{\"data\":\"pid\"}",
-      "buttonText": "PID",
-      "buttonTooltip": "Bench verification required for live motor control",
-      "buttonColor": "#006cab",
-      "advancedView": false,
-      "foxglovePanelTitle": "PID"
-    },
-    "Publish!rcafuzzy": {
-      "topicName": "/rcauto/operator/mode",
-      "datatype": "std_msgs/msg/String",
-      "value": "{\"data\":\"fuzzy\"}",
-      "buttonText": "FUZZY",
-      "buttonTooltip": "Bench verification required for live motor control",
-      "buttonColor": "#006cab",
-      "advancedView": false,
-      "foxglovePanelTitle": "FUZZY"
-    },
-    "Publish!rcaai": {
-      "topicName": "/rcauto/operator/mode",
-      "datatype": "std_msgs/msg/String",
-      "value": "{\"data\":\"ai\"}",
-      "buttonText": "AI MODEL",
-      "buttonTooltip": "Bench verification required for live motor control",
-      "buttonColor": "#006cab",
-      "advancedView": false,
-      "foxglovePanelTitle": "AI MODEL"
-    },
-    "Publish!rcareset": {
-      "topicName": "/rcauto/operator/reset_estop",
-      "datatype": "std_msgs/msg/Bool",
-      "value": "{\"data\":true}",
-      "buttonText": "RESET E-STOP",
-      "buttonTooltip": "Bench verification required for live motor control",
-      "buttonColor": "#858585",
-      "advancedView": true,
-      "foxglovePanelTitle": "RESET E-STOP"
+      "foxglovePanelTitle": "Grafik Jalur - Kemudi - Kecepatan"
     }
   },
-  "layout": {
-    "first": {
-      "first": "Image!rca001",
-      "second": "Plot!rca002",
-      "direction": "column",
-      "splitPercentage": 60
-    },
-    "second": {
-      "first": {
-        "first": {
-          "first": "Publish!rcaestop",
-          "second": {
-            "first": "Publish!rcadisarm",
-            "second": "Publish!rcaenable",
-            "direction": "row",
-            "splitPercentage": 50
-          },
-          "direction": "row",
-          "splitPercentage": 33
-        },
-        "second": {
-          "first": {
-            "first": "Publish!rcapid",
-            "second": {
-              "first": "Publish!rcafuzzy",
-              "second": "Publish!rcaai",
-              "direction": "row",
-              "splitPercentage": 50
-            },
-            "direction": "row",
-            "splitPercentage": 33
-          },
-          "second": "Publish!rcareset",
-          "direction": "column",
-          "splitPercentage": 60
-        },
-        "direction": "column",
-        "splitPercentage": 40
-      },
-      "second": {
-        "first": "RawMessages!rca003",
-        "second": {
-          "first": "RawMessages!rca004",
-          "second": {
-            "first": "RawMessages!rca005",
-            "second": {
-              "first": "RawMessages!rca006",
-              "second": "RawMessages!rca007",
-              "direction": "column",
-              "splitPercentage": 50
-            },
-            "direction": "column",
-            "splitPercentage": 35
-          },
-          "direction": "column",
-          "splitPercentage": 30
-        },
-        "direction": "column",
-        "splitPercentage": 27
-      },
-      "direction": "column",
-      "splitPercentage": 40
-    },
-    "direction": "row",
-    "splitPercentage": 55
-  },
   "globalVariables": {},
+  "userNodes": {},
   "playbackConfig": {
     "speed": 1
   },
-  "userNodes": {}
+  "layout": {
+    "first": "rcauto-control.control!4hbnzo5",
+    "second": {
+      "first": "rcauto-control.camera!2l80fhi",
+      "second": "Plot!41ruiqq",
+      "direction": "column"
+    },
+    "direction": "row",
+    "splitPercentage": 66.5149544863459
+  }
 }

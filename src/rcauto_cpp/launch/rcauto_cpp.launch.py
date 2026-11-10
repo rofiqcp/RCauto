@@ -1,7 +1,7 @@
 """C++-only ROS nodes. Simulated data and physical PWM must never coexist."""
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
-from launch.conditions import IfCondition
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, OpaqueFunction
+from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -16,7 +16,37 @@ def validate(context):
         raise RuntimeError("Simulation is forbidden with live actuator PWM")
     if hardware and LaunchConfiguration("live_ack").perform(context) != "CONFIRM_WHEELS_UP_EXTERNAL_ESTOP":
         raise RuntimeError("Live PWM requires explicit wheels-up and external E-stop acknowledgement")
+    if LaunchConfiguration("actuator_backend").perform(context) not in ("pca9685", "esp32"):
+        raise RuntimeError("actuator_backend must be pca9685 or esp32")
     return []
+
+
+def actuator_actions(context):
+    if LaunchConfiguration("camera_only").perform(context).lower() in ("1", "true"):
+        return []
+    backend = LaunchConfiguration("actuator_backend").perform(context)
+    hardware = LaunchConfiguration("hardware_enabled").perform(context).lower() in ("1", "true")
+    if backend == "esp32":
+        if not hardware:
+            return []
+        return [ExecuteProcess(
+            cmd=["/usr/bin/python3", "-B",
+                 str(Path.home() / "RCauto" / "tools" / "rcauto_esp32.py"),
+                 "--ros", "--port",
+                 LaunchConfiguration("esp32_port").perform(context),
+                 "--max-steering-rad",
+                 LaunchConfiguration("sim_steering_limit_rad").perform(context),
+                 "--max-speed-mps",
+                 LaunchConfiguration("esp32_max_speed_mps").perform(context)],
+            output="screen")]
+    config = str(Path(get_package_share_directory("rcauto_cpp")) / "config" / "robot.yaml")
+    return [Node(package="rcauto_cpp", executable="rcauto_actuator",
+                 name="rcauto_cpp_actuator", output="screen",
+                 parameters=[config, {
+                    "actuator.hardware_enabled": hardware,
+                    "actuator.live_ack": LaunchConfiguration("live_ack").perform(context),
+                    "actuator.max_steering_rad": float(
+                        LaunchConfiguration("sim_steering_limit_rad").perform(context))}])]
 
 
 def generate_launch_description():
@@ -24,7 +54,11 @@ def generate_launch_description():
     sim = LaunchConfiguration("simulation")
     return LaunchDescription([
         DeclareLaunchArgument("simulation", default_value="false"),
+        DeclareLaunchArgument("camera_only", default_value="false"),
         DeclareLaunchArgument("hardware_enabled", default_value="false"),
+        DeclareLaunchArgument("actuator_backend", default_value="pca9685"),
+        DeclareLaunchArgument("esp32_port", default_value="/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"),
+        DeclareLaunchArgument("esp32_max_speed_mps", default_value="0.18"),
         DeclareLaunchArgument("require_range", default_value="false"),
         DeclareLaunchArgument("live_ack", default_value=""),
         DeclareLaunchArgument("camera_source", default_value="ros"),
@@ -48,24 +82,26 @@ def generate_launch_description():
                  "vision.line_color": LaunchConfiguration("line_color"),
                  "vision.hardware_mode": ParameterValue(LaunchConfiguration("hardware_enabled"),value_type=bool)}]),
         Node(package="rcauto_cpp", executable="rcauto_perception", name="rcauto_cpp_perception",
+             condition=UnlessCondition(LaunchConfiguration("camera_only")),
              output="screen", parameters=[config, {
                  "detection.hardware_mode": ParameterValue(LaunchConfiguration("hardware_enabled"),value_type=bool)}]),
         Node(package="rcauto_cpp", executable="rcauto_controller", name="rcauto_cpp_controller",
              output="screen", parameters=[config, LaunchConfiguration("tuning_config"),
                          LaunchConfiguration("mode_tuning_config"), {
+                 "safety.preview_only": ParameterValue(LaunchConfiguration("camera_only"), value_type=bool),
                  "controller.mode": LaunchConfiguration("controller_mode"),
-                 "controller.ai.model_path": LaunchConfiguration("model_path"),
+                 "controller.ai.model_path": ParameterValue(LaunchConfiguration("model_path"), value_type=str),
                  "safety.hardware_mode": ParameterValue(LaunchConfiguration("hardware_enabled"), value_type=bool),
                  "safety.require_range": ParameterValue(LaunchConfiguration("require_range"), value_type=bool)}]),
-        Node(package="rcauto_cpp", executable="rcauto_actuator", name="rcauto_cpp_actuator",
-             output="screen", parameters=[config, {
-                 "actuator.hardware_enabled": ParameterValue(
-                     LaunchConfiguration("hardware_enabled"), value_type=bool),
-                 "actuator.live_ack": LaunchConfiguration("live_ack"),
-                 "actuator.max_steering_rad": ParameterValue(
-                     LaunchConfiguration("sim_steering_limit_rad"), value_type=float)}]),
+        OpaqueFunction(function=actuator_actions),
         Node(package="rcauto_cpp", executable="rcauto_simulator", name="rcauto_cpp_simulator",
              output="screen", condition=IfCondition(sim)),
+        Node(package="rcauto_cpp", executable="rcauto_tuning_persist.py",
+             name="rcauto_tuning_persistence", output="screen",
+             condition=IfCondition(LaunchConfiguration("camera_only"))),
+        Node(package="rcauto_cpp", executable="rcauto_esp32_hotplug.py",
+             name="rcauto_esp32_hotplug", output="screen",
+             condition=IfCondition(LaunchConfiguration("camera_only"))),
         Node(package="foxglove_bridge", executable="foxglove_bridge", name="rcauto_cpp_foxglove",
              output="screen", condition=IfCondition(LaunchConfiguration("foxglove_enabled")),
              parameters=[{"port": ParameterValue(LaunchConfiguration("foxglove_port"),
