@@ -92,7 +92,7 @@ def generate_launch_description():
         Node(package="rcauto_cpp", executable="rcauto_esp32_hotplug.py",
              name="rcauto_esp32_hotplug", output="screen",
              condition=UnlessCondition(sim),
-             parameters=[{
+             parameters=[config, {
                  "port": LaunchConfiguration("esp32_port"),
                  "hardware_enabled": ParameterValue(
                      LaunchConfiguration("hardware_enabled"), value_type=bool),

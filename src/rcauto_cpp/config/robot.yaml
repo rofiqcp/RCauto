@@ -94,3 +94,7 @@ rcauto_cpp_actuator:
       max_speed_mps: 0.18
       watchdog_s: 0.25
       max_servo_step_us: 40
+rcauto_esp32_hotplug:
+  ros__parameters:
+    max_motor_output_percent: 100
+    max_steering_output_percent: 100

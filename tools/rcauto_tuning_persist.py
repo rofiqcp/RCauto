@@ -58,6 +58,10 @@ VISION_PARAMETERS = frozenset(
 ALLOWED = {
     "/rcauto_cpp_controller": CONTROLLER_PARAMETERS,
     "/rcauto_cpp_vision": VISION_PARAMETERS,
+    "/rcauto_esp32_hotplug": frozenset((
+        "max_motor_output_percent",
+        "max_steering_output_percent",
+    )),
 }
 
 
