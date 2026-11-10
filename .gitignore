@@ -2,6 +2,7 @@
 /*
 !/src/
 !/tools/
+!/firmware/
 !/README.md
 !/.gitignore
 
@@ -49,3 +50,11 @@
 **/*~
 .DS_Store
 Thumbs.db
+
+# ESP32 PlatformIO artifacts are local build outputs.
+**/.pio/
+**/.pioenvs/
+**/.piolibdeps/
+**/*.elf
+**/*.map
+**/*.bin
